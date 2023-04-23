@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+    <name>ghost shop</name>
+    <directory>ghost shop</directory>
+    <id>2777572191</id>
+    <description>Disclaimer: this is a beta version and will be deleted once the full mod is published. Do not award it, please ._.
+Also you gotta play at least one run to make it work properly
+
+A new mechinc for the Mirror floor
+
+It contains currently 5 shop layouts which will vary in it's content depending on the items you had in your last run.
+
+Layouts:
+- 1 rare lucky layout (6 items/ &quot;better&quot; items/100% haunted chest)
+- 3 normal layouts (5 items/50% haunted chest)
+- 1 rare bad layout (4 items)
+
+Item cost:
+- Quality 0 -2: 15¢
+- Quality 3: 15-20¢
+- Quality 4: 15-25¢
+
+How does it work?
+- Each layout has a total number of items (let's call them slots) it can contain.
+
+- if you win the game or die, then the items you have will be saved (depending on their item quality) in five tables.
+
+- Each slot in the shop gets assigned a quality. This indicates the max quality which it can spawn.
+If it can't spawn an item of this quality, because you didn't have more items of this quality, then the quality of the slot will decrease by 1.
+If no item can be spawned, then a shop sign will be spawned.
+
+- The item quality which can be assigned to a slot can be increased by completing floors or killing an end boss. Tho beating one will trade this with the bonus you can get from completing floors.
+
+- 1 slot is always at max quality. So as long as you had atleast one item and this item isn't a story item you can always find 1 item in the shop.
+
+- you gotta choose between this shop and the normal shop on the floor. One exists and one is just an empty reflection.
+
+To do list:
+- steam thumbnail
+- steam images
+- finish Unique Spikes
+
+post poned:
+
+- coop ghosts (mod compatibility)
+- modded item support. If duable
+- Andromeda. If duable</description>
+    <version>1.10</version>
+    <visibility>Public</visibility>
+    <tag id="Lua"/>
+    <tag id="Rooms"/>
+</metadata>
