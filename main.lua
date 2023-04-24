@@ -13,7 +13,7 @@ EffectVariant.REFLECTED_STORE_SIGN = Isaac.GetEntityVariantByName("Reflected Sto
 EffectVariant.FLIP_EFFECT = Isaac.GetEntityVariantByName("Flip Effect")
 GhostShopMod.ENTITY_GS_COOP_GHOST = Isaac.GetEntityTypeByName("GS Coop Ghost")
 
--- ghot signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
+-- ghost signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
 local numLittleGhosts = 0	-- keeps track on how many possessed ghost signs should be spawned by reentering the shop
 local SpawnGhostSigns = false 	-- 'true' if shop signs should be spawned
 
