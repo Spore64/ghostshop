@@ -545,47 +545,47 @@ function GhostShop:onStart()
 	-- GameState = json.decode(Isaac.LoadModData(GhostShop)) -- decodes the data from the savefile (returns a lua table)
 	GameState = json.decode(GhostShop:LoadData()) -- decodes the data from the savefile (returns a lua table)
 	-- print("Player")
-	if GameState.seenItems == nil then GameState.seenItems = {} end
+	if GameState.seenItems == nil then GameState.seenItems = {} end					-- stores the id's from all items the players have seen during their run
  
-	if GameState.savedItems1 == nil then GameState.savedItems1 = {} end
+	if GameState.savedItems1 == nil then GameState.savedItems1 = {} end				-- stores the id's of the current items the players have 
 	if GameState.savedItems2 == nil then GameState.savedItems2 = {} end
 	if GameState.savedItems3 == nil then GameState.savedItems3 = {} end
 	if GameState.savedItems4 == nil then GameState.savedItems4 = {} end
 	if GameState.savedItems5 == nil then GameState.savedItems5 = {} end
 
-	if GameState.backUpItems1 == nil then GameState.backUpItems1 = {} end
+	if GameState.backUpItems1 == nil then GameState.backUpItems1 = {} end				-- stores the id's of the last set items the players had while winning, dying or exiting the game before starting a new run (only get filled at the start of a new run)
 	if GameState.backUpItems2 == nil then GameState.backUpItems2 = {} end
 	if GameState.backUpItems3 == nil then GameState.backUpItems3 = {} end
 	if GameState.backUpItems4 == nil then GameState.backUpItems4 = {} end
 	if GameState.backUpItems5 == nil then GameState.backUpItems5 = {} end
 
-	if GameState.coopItems1 == nil then GameState.coopItems1 = {} end
+	if GameState.coopItems1 == nil then GameState.coopItems1 = {} end				-- stores the id's of the current items the coop players have (important for the item pool of the coop ghosts)
 	if GameState.coopItems2 == nil then GameState.coopItems2 = {} end
 	if GameState.coopItems3 == nil then GameState.coopItems3 = {} end
 
-	if GameState.backUpCoopItems1 == nil then GameState.backUpCoopItems1 = {} end
+	if GameState.backUpCoopItems1 == nil then GameState.backUpCoopItems1 = {} end			-- stores the id's of the last set items the players had while winning, dying or exiting the game before starting a new run
 	if GameState.backUpCoopItems2 == nil then GameState.backUpCoopItems2 = {} end
 	if GameState.backUpCoopItems3 == nil then GameState.backUpCoopItems3 = {} end
 
-	if GameState.preFlippedItems == nil then GameState.preFlippedItems = {} end
-	if GameState.postFlippedItems == nil then GameState.postFlippedItems = {} end
+	if GameState.preFlippedItems == nil then GameState.preFlippedItems = {} end			-- stores the id's from the default layout of the ghost shop
+	if GameState.postFlippedItems == nil then GameState.postFlippedItems = {} end			-- stores the id's of the flipped layout (only get's filled once the player actually uses the Flip item (to prevent items from being removeed from the pool without the possibility to excess them)
 
-	if GameState.prePrice == nil then GameState.prePrice = {} end
-	if GameState.postPrice == nil then GameState.postPrice = {} end	
+	if GameState.prePrice == nil then GameState.prePrice = {} end					-- stores the current price for each of the individuell items of the default shop layout
+	if GameState.postPrice == nil then GameState.postPrice = {} end					-- stores the current price for each of the individuell items of the flipped shop layout
 
-	if GameState.preAddRestockPrice == nil then GameState.preAddRestockPrice = {} end
-	if GameState.postAddRestockPrice == nil then GameState.postAddRestockPrice = {} end
+	if GameState.preAddRestockPrice == nil then GameState.preAddRestockPrice = {} end		-- stores the current price for each of the individuell items of the default shop layout 
+	if GameState.postAddRestockPrice == nil then GameState.postAddRestockPrice = {} end		-- stores the current price for each of the individuell items of the default shop layout
 	
-	if GameState.shoppingList == nil then GameState.shoppingList = {} end
-	if GameState.backupShoppingListOne == nil then GameState.backupShoppingListOne = {} end
-	if GameState.backupShoppingListTwo == nil then GameState.backupShoppingListTwo = {} end
+	if GameState.shoppingList == nil then GameState.shoppingList = {} end				-- stores which items the players bought in the last run
+	if GameState.backupShoppingListOne == nil then GameState.backupShoppingListOne = {} end		-- stores which items have been bought twice in a row		(used to determine the price increase of the item)
+	if GameState.backupShoppingListTwo == nil then GameState.backupShoppingListTwo = {} end		-- stores which items have been bought thrice or more in a row	(used to determine the price increase of the item)
 
-	if GameState.backUpQuality == nil then GameState.backUpQuality = {} end
+	if GameState.backUpQuality == nil then GameState.backUpQuality = {} end				-- stores the determined quality of the default layout
 
-	if GameState.backUpLayout == nil then GameState.backUpLayout = 0 end
+	if GameState.backUpLayout == nil then GameState.backUpLayout = 0 end				-- stores which layout is currentlyused to spawn the items
 
-	if GameState.deathBonus == nil then GameState.deathBonus = 0 end
-	if GameState.winBonus == nil then GameState.winBonus = 0 end
+	if GameState.deathBonus == nil then GameState.deathBonus = 0 end				-- stores the bonus the player gets from completing floors without dying (bonuses can increase the quality of the individuel shop slots)
+	if GameState.winBonus == nil then GameState.winBonus = 0 end					-- stores the bonus the player gets from beating end game bosses (bonuses can increase the quality of the individuel shop slots)
 
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_PLAYER_INIT, GhostShop.onStart)
@@ -599,7 +599,7 @@ function GhostShop:onNewStart(bool)
 		local winBonus = GameState.winBonus			-- depends on which end boss the player managed to beat. Will reset deathbonus to 0.
 		luckyBonus = 0						-- depends which layout will be used in the end
 
-		-- create a back up table This way the json table can be updated on the fly once the player loses or closes the game
+		-- create a back up table. This way the json table can be updated on the fly once the player loses or closes the game
 		GameState.backupItems1 = GameState.savedItems1
 		GameState.backupItems2 = GameState.savedItems2
 		GameState.backupItems3 = GameState.savedItems3
