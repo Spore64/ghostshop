@@ -13,7 +13,7 @@ EffectVariant.REFLECTED_STORE_SIGN = Isaac.GetEntityVariantByName("Reflected Sto
 EffectVariant.FLIP_EFFECT = Isaac.GetEntityVariantByName("Flip Effect")
 GhostShopMod.ENTITY_GS_COOP_GHOST = Isaac.GetEntityTypeByName("GS Coop Ghost")
 
--- ghost signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
+-- ghot signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
 local numLittleGhosts = 0	-- keeps track on how many possessed ghost signs should be spawned by reentering the shop
 local SpawnGhostSigns = false 	-- 'true' if shop signs should be spawned
 
@@ -109,7 +109,8 @@ local shopStayOpen = false	-- keeps track if the shop door has played the openin
 
 -- local spawnedCoopGhosts = 0	-- necessary?
 
-local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the items which have to be spawned. 
+
+local function ghostShop_ChoseNewItem(rng, quality, roll, item, spawnSign, addPrice, restock, reroll, spawnItem)			-- used to chose the items which have to be spawned. 
 	local decoyTable = {}		-- stores the item which the players don't have at the moment
 	local chosenItem = nil		-- stores the item Id of the item which should be spawnned in the end
 	local preChosenItem = {}	-- stores the item Id of the item which got originally chosen to be spawned, but first have to be checked if it is a vailable option first
@@ -148,24 +149,50 @@ local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the
 				-- increase the number of tables we checked, so that the while loop breaks next round
 				tablesChecked = 5
 
-				if firstFlipp == false then -- used in order to make the function universal
+				if reroll == 1 then		-- 1 == true, in case of rerolling the existing item gets removed before a shop sign is even spawned
+					item:Remove() 		-- first remove the shop item which is still there			
+				end 
+
+				if spawnSign == 1 then 	-- 1 == true, used in order to make the function universal
+
 					-- this also means that we won't spawn an item at all. So we need to spawn a ghost sign
 					local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil):ToEffect()
 					if shopSign:GetData().IsPossessed == nil then
-						local roll = math.random(1,3)
-						if roll == 1 then	-- a possessed sign should be spawned
+						local ghostRoll = math.random(1,3)
+						if ghostRoll == 1 then	-- a possessed sign should be spawned
 							shopSign:GetData().IsPossessed = true
 							numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
+                                 		end
+					end
+
+					if restock == 1 		-- 1 == true, in case of rerolling or restocking the shopSign should simply get added to the usedFlip table
+					or reroll == 1 then	
+						-- insert the ghost sign in the postFlipped table
+						usedFlipTable[roll] = -1
+						-- add a placeholder price on this postion
+						usedPriceTable[roll] = -99	
+					else
+						-- insert the ghost sign in the usedFlipTable table
+						table.insert(usedFlipTable, -1)
+						-- add a placeholder price on this postion
+						table.insert(usedPriceTable, -99)
+					end
+				else		-- Flip, Mystery gift as well as rerolling items which are not shop items
+					if item ~= nil			-- item only equals something other than 0 for Mystery Gift and the Dice [...]
+					and item == 0 then		-- so if it is 0, then it will be triggered through the Flipp item and a shopSign has to be added to the table
+						-- insert the ghost sign in the usedFlipTable table
+						table.insert(usedFlipTable, -1)
+						-- add a placeholder price on this postion
+						table.insert(usedPriceTable, -99)
+					else
+						-- in the other case we have to check if this was done by a Mystery Gift use
+						if hasUsedMyGi[2] ~= nil then		-- 0 = false, in case of the mystery gift the item gets transformed into the poop, but reroll has tobe checked due the else function being triggered other ways as well
+							item:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_POOP, false)
 						end
 					end
 				end
-
-				-- insert the ghost sign in the usedFlipTable table
-				table.insert(usedFlipTable, -1)
-				-- add a placeholder price on this postion
-				table.insert(usedPriceTable, -99)
 			else 
-				-- we need to check another quality table and thus decrease the quality by one
+				-- we need to check       quality table and thus decrease the quality by one
 				quality = quality - 1
 			end
 		-- else the while loop breaks next round and we can progress
@@ -212,6 +239,7 @@ local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the
 				-- the 'for'-loop found out that the seen item equals the item id we want to spawn
 				if hasSeenItem == true then
 					-- we try to chose a new item from the (now reduced) decoy table
+
 					if decoyTable[2] ~= nil then
 						itemPosition = rng:RandomInt(#decoyTable) + 1
 						poolRNG = decoyTable[itemPosition]
@@ -224,13 +252,12 @@ local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the
 					-- print(poolRNG)
 				end
 
-					-- if the 'for'-loop hasn't found a match then we pass the original chosen item ID on
-					-- if it found one, then this won't get triggered, as 'hasSeenItem is set to 'true' now
-					if hasSeenItem == false then
-						chosenItem = poolRNG			-- also the 'while'-loop should break, as 'chosenItem' isn't nil anymore
-					end
+				-- if the 'for'-loop hasn't found a match then we pass the original chosen item ID on
+				-- if it found one, then this won't get triggered, as 'hasSeenItem is set to 'true' now
+				if hasSeenItem == false then
+					chosenItem = poolRNG			-- also the 'while'-loop should break, as 'chosenItem' isn't nil anymore
 				end
-
+			end
 			-- we still need to check if curTotalRemovedItems equals numTotalItems now. If it does, then we will have to pass the originally chosen item on
 			if curTotalRemovedItems >= numTotalItems 
 			and preChosenItem[1] ~= nil then		-- only to make sure everything worked and the table ins't empty
@@ -248,78 +275,103 @@ local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the
 		-- shop price
 		local shopPrice = 15
 
-		-- determine the price baseed on the item quality
-		if quality < 4 then	-- = quality 0,1 and 2
-			shopPrice = shopPrice + (usedRestockTable[roll] * 2)
-			usedPriceTable[roll] = shopPrice
-		elseif quality == 4 then	-- = quality 3
-			local priceRNG = rng:RandomInt(6)	-- + 5
-			shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG
-			usedPriceTable[roll] = shopPrice
-		elseif quality == 5 then	-- = quality 4
-			local priceRNG = rng:RandomInt(11)	-- + 10
-			shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG
-			usedPriceTable[roll] = shopPrice
-		end
+		if addPrice == 1 then	-- 1 == true, could only be used when the item is spawned, but this probably save computing power
+					
+			-- determine the price baseed on the item quality
+			if quality < 4 then	-- = quality 0,1 and 2
+				shopPrice = shopPrice + (usedRestockTable[roll] * 2)
+				usedPriceTable[roll] = shopPrice
+			elseif quality == 4 then	-- = quality 3
+				local priceRNG = rng:RandomInt(6)	-- + 5
+				shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG
+				usedPriceTable[roll] = shopPrice
+			elseif quality == 5 then	-- = quality 4
+				local priceRNG = rng:RandomInt(11)	-- + 10
+				shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG
+				usedPriceTable[roll] = shopPrice
+			end
 
-		-- check if the item was bought in the last run
-		local foundItem = false
-		if backupListOne[1] ~= nil then
-			for c, item in ipairs(backupListOne) do
-				if item == chosenItem then
-					foundItem = true
-					-- reevaluate the price
-					shopPrice = 20
-					if quality < 4 then	-- = quality 0,1 and 2
-						usedPriceTable[roll] = shopPrice + (usedRestockTable[roll] * 2)	 -- store the new shop price
-					elseif quality == 4 then	-- = quality 3
-						local priceRNG = rng:RandomInt(6)	-- + 5
-						shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG	 	-- costs between 20 - 25
-						usedPriceTable[roll] = shopPrice
-					elseif quality == 5 then	-- = quality 4
-						local priceRNG = rng:RandomInt(11)	-- + 10
-						shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG 	-- costs between 20 - 30
-						usedPriceTable[roll] = shopPrice
+			-- check if the item was bought in the last run
+			local foundItem = false
+			if backupListOne[1] ~= nil then
+				for c, item in ipairs(backupListOne) do
+					if item == chosenItem then
+						foundItem = true
+						-- reevaluate the price
+						shopPrice = 20
+						if quality < 4 then	-- = quality 0,1 and 2
+							usedPriceTable[roll] = shopPrice + (usedRestockTable[roll] * 2)	 -- store the new shop price
+						elseif quality == 4 then	-- = quality 3
+							local priceRNG = rng:RandomInt(6)	-- + 5
+							shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG	 	-- costs between 20 - 25
+							usedPriceTable[roll] = shopPrice
+						elseif quality == 5 then	-- = quality 4
+							local priceRNG = rng:RandomInt(11)	-- + 10
+							shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG 	-- costs between 20 - 30
+							usedPriceTable[roll] = shopPrice
+						end
 					end
 				end
 			end
-		end
-		if foundItem == false		-- item wasn't in the first backup table
-		and backupListTwo[1] ~= nil then
-			for d, item in ipairs(backupListTwo) do
-				if item == chosenItem then
-					-- reevaluate the price
-					shopPrice = 25
-					if quality < 4 then	-- = quality 0,1 and 2
-						usedPriceTable[roll] = shopPrice + (usedRestockTable[roll] * 2)	 	-- store the new shop price
-					elseif quality == 4 then	-- = quality 3
-						local priceRNG = rng:RandomInt(11)	-- + 10
-						shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG	 	-- costs between 25 - 35
-						usedPriceTable[roll] = shopPrice
-					elseif quality == 5 then	-- = quality 4
-						local priceRNG = rng:RandomInt(16)	-- + 15
-						shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG 	-- costs between 25 - 40
-						usedPriceTable[roll] = shopPrice
+			if foundItem == false		-- item wasn't in the first backup table
+			and backupListTwo[1] ~= nil then
+				for d, item in ipairs(backupListTwo) do
+					if item == chosenItem then
+						-- reevaluate the price
+						shopPrice = 25
+						if quality < 4 then	-- = quality 0,1 and 2
+							usedPriceTable[roll] = shopPrice + (usedRestockTable[roll] * 2)	 	-- store the new shop price
+						elseif quality == 4 then	-- = quality 3
+							local priceRNG = rng:RandomInt(11)	-- + 10
+							shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG	 	-- costs between 25 - 35
+							usedPriceTable[roll] = shopPrice
+						elseif quality == 5 then	-- = quality 4
+							local priceRNG = rng:RandomInt(16)	-- + 15
+							shopPrice = shopPrice + (usedRestockTable[roll] * 2) + priceRNG 	-- costs between 25 - 40
+							usedPriceTable[roll] = shopPrice
+						end
 					end
 				end
 			end
-		end
 
-		-- apply the Steam Sale synergy
-		if hasSteamSale == true then
-			shopPrice = math.floor(shopPrice / 2)
+			if hasSteamSale == true then
+				shopPrice = math.floor(shopPrice / 2)
+			end
 		end
 
 	-- Spawn the item! ---------------------------------------------------------------------------------------------------------------		
-	
-		-- add the items id to the usedFlipTable table
-		table.insert(usedFlipTable, chosenItem)
 
-		if firstFlipp == false then	-- used in order to make the function universal
-			-- then spawn the item
-			local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil) -- :ToPickup()
-			shopItem:ToPickup().AutoUpdatePrice = false
-			shopItem:ToPickup().Price = shopPrice
+		if reroll == 1 	then	-- 1 == true, first it has to be check if an existing item should be rerolled into the choosen item
+		
+			usedFlipTable[roll] = chosenItem		-- simply add the items quality to the usedFlipped table
+
+			-- morph the item to an item from the new quality table
+			item:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, false)
+			if addPrice == 1 then	-- 1 == true, sometimes the prices doesn't have to be added
+				item:ToPickup().AutoUpdatePrice = false
+				item:ToPickup().Price = shopPrice
+			end
+
+		elseif hasUsedMyGi[2] ~= nil then
+			-- morph the item to an item from the new quality table
+			item:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, false)
+
+		else			-- if there's no existing item, then a new item has to be spawned
+			-- add the items id to the usedFlipTable table
+			if restock == 1 then
+				usedFlipTable[roll] = chosenItem		-- simply add the items quality to the usedFlipped table
+			else
+				table.insert(usedFlipTable, chosenItem)		-- add a new entry to the usedFlipped table
+			end
+
+			if spawnItem == 1 then	-- 1 == true, check if an item should be spawned. In case of the first Flipp it prevents from the item being spawned
+				-- then spawn the item
+				local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil) -- :ToPickup()
+				if addPrice == 1 then	-- 1 == true, sometimes the prices doesn't have to be added
+					shopItem:ToPickup().AutoUpdatePrice = false
+					shopItem:ToPickup().Price = shopPrice
+				end
+			end
 		end
 		
 		-- all that is left is removing the item ID from the original 'storedItems[quality]'-table
@@ -330,69 +382,6 @@ local function ghostShop_ChoseNewItem(rng, quality, roll)			-- used to chose the
 			end
 		end
 	end
-end
-
-
-local function ghostShop_MorphItem(rng, quality, id, poolRNG, itemPosition, shopPrice, roll)	-- function used manly for the Dice synergies
-
-	-- reevalue the item price in the case the item was picked up in the last run
-	-- check if the item was bought in the last run
-	local foundItem = false
-	if backupListOne[1] ~= nil then
-		for o, item in ipairs(backupListOne) do
-			if item == poolRNG then
-				foundItem = true
-				-- reevaluate the price
-				shopPrice = 20
-				if quality == 4 then	-- = quality 3
-					local priceRNG = rng:RandomInt(6)	-- + 5
-					shopPrice = shopPrice + priceRNG		-- costs between 20 - 25
-				elseif quality == 5 then	-- = quality 4
-					local priceRNG = rng:RandomInt(11)	-- + 10
-					shopPrice = shopPrice + priceRNG		-- costs between 20 - 30
-				end
-			end
-		end
-	end
-	if foundItem == false		-- item wasn't in the first backup table
-	and backupListTwo[1] ~= nil then
-		for k, item in ipairs(backupListTwo) do
-			if item == poolRNG then
-				-- reevaluate the price
-				shopPrice = 25
-				if quality == 4 then	-- = quality 3
-					local priceRNG = rng:RandomInt(11)	-- + 10
-					shopPrice = shopPrice + priceRNG		-- costs between 25 - 35
-				elseif quality == 5 then	-- = quality 4
-					local priceRNG = rng:RandomInt(16)	-- + 15
-					shopPrice = shopPrice + priceRNG		-- costs between 25 - 40
-				end
-			end
-		end
-	end
-
-	-- insert the newly morph item into the pre/postflipped table
-	if flipped == 1 then		-- it's the normal Layout
-		preFlipped[roll] = poolRNG
-		prePrice[roll] = shopPrice
-	elseif flipped == 2 then	-- it's the flipped Layout
-		postFlipped[roll] = poolRNG
-		postPrice[roll] = shopPrice
-	end
-
-	-- apply the Steam Sale Synergy
-	if hasSteamSale == true then
-		shopPrice = math.floor(shopPrice / 2)
-	end
-
-	if shopLayouts[GameState.backUpLayout][roll + 1] ~= nil then
-		-- morph the item to an item from the new quality table
-		id:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, poolRNG, false)
-		id:ToPickup().AutoUpdatePrice = false
-		id:ToPickup().Price = shopPrice
-	end
-	-- remove the item from the table
-	table.remove(storedItems[quality],itemPosition)
 end
 
 
@@ -881,14 +870,6 @@ function GhostShop:onShopItemPickup()
 	local SaleCounter = 0			-- keeps track of the Steam Sale
 
 	local itemConfig = Isaac.GetItemConfig()
-
-	-- if game:GetFrameCount() == 1 then
-	--	-- spawn in if you want to
-	--	Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_MAGIC_MUSHROOM, Vector(250, 200), Vector(0,0), player)
-	--	-- Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_ROID_RAGE, Vector(325, 200), Vector(0,0), player)
-	--	Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, 169, Vector(325, 200), Vector(0,0), player)
-	--	Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_MERCURIUS, Vector(400, 200), Vector(0,0), player)
-	-- end
 			
 	-- only use the callback when the player is in the right location
 	if roomType == RoomType.ROOM_SHOP	
@@ -906,7 +887,7 @@ function GhostShop:onShopItemPickup()
 				usedFlipTable = postFlipped
 				usedPriceTable = postPrice
 				usedRestockTable = postAddRestockPrice
-				firstFlipp = true 
+				-- firstFlipp = true 
 
 				for i = 1, shopLayouts[GameState.backUpLayout][1] do	-- go through the amount of slots which should be there
 					if preFlipped[i] ~= nil then			-- only do that if already items for the 'preFlipped'-layout are chosen
@@ -931,9 +912,10 @@ function GhostShop:onShopItemPickup()
 							end
 						end
 						-- chose an item for the postFlipped table	
-						ghostShop_ChoseNewItem(ghostRNG, quality, i)
+						ghostShop_ChoseNewItem(ghostRNG, quality, i, 0, 0, 1, 0, 0, 0)		
+						-- ghostShop_ChoseNewItem(rng, quality, roll, entity placeholder, spawnSign = false , addPrice = true, restock = false, reroll = false, spawnItem = false)
 					end
-				firstFlipp = false
+				-- firstFlipp = false
 				end
 			end
 			-- first look for all the signs in the slots and remove them all
@@ -1001,161 +983,10 @@ function GhostShop:onShopItemPickup()
 							local items = entity
 							local itemPosition = nil
 							local quality = (itemQuality[i])
-							local shopPrice = 15	-- normal price of shop items (for quality 0,1,2)
 
-							local decoyTable = {}		-- stores the item which the players don't have at the moment
-							local chosenItem = nil		-- stores the item Id of the item which should be spawnned in the end
-							local preChosenItem = {}	-- stores the item Id of the item which got originally chosen to be spawned, but first have to be checked if it is a vailable option first
-							local numTotalItems = 0
-							local tablesChecked = 1
-							local curTotalRemovedItems = 0
-
-							while decoyTable[1] == nil and tablesChecked ~= 5 do		-- while the decoy table is still empty and all 5 tables haven't been checked
-								if storedItems[quality][1] ~= nil then 	-- needs to be checked, because we could have decreased the quality again
-									-- first we have to check which items the players from the curerent quality table already have
-									-- we also need to get the current amount of items in the og table
-									for a, curItem in ipairs(storedItems[quality]) do	-- go through each entry of the current quality table
-										local playerHasCurItem = false
-	
-										for j = 0, (game:GetNumPlayers() - 1) do
-											local player = Isaac.GetPlayer(j)
-											-- check if the player has the item
-											if player:IsCoopGhost() == false
-											and player:HasCollectible(curItem) then
-												playerHasCurItem = true
-											end
-										end
-
-										if playerHasCurItem == false then		-- none of the players have the item currently
-											numTotalItems = numTotalItems + 1	-- increase the number of items held in the decoy table
-											table.insert(decoyTable, curItem)	-- insert the items into the decoy table
-										end
-									end
-								end
-
-								-- check if the decoy table empty or not (if empty than the players have the current items already)
-								if decoyTable[1] == nil then
-									-- check if we are already at the quality 0 table
-									if quality == 1 then 	-- all tables have been checked (here 1 means 0)
-										-- increase the number of tables we checked, so that the while loop breaks next round
-										tablesChecked = 5
-
-										-- first remove the shop item which is still there
-										items:Remove()
-										-- spawn the ghost effect entity 
-										local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][i + 1], Vector(0,0), nil):ToEffect()
-										if shopSign:GetData().IsPossessed == nil then
-											local roll = math.random(1,7)	-- only has a 14,3% chance to be possessed
-											if roll == 1 then	-- a possessed sign should be spawned
-												shopSign:GetData().IsPossessed = true	-- this is now the home of a little ghost
-												numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
-											end
-										end
-
-										-- insert the ghost sign in the postFlipped table
-										usedFlipTable[i] = -1
-
-										-- add a placeholder price on this postion
-										usedPriceTable[i] = -99
-									else 
-										-- we need to check another quality table and thus decrease the quality by one
-										quality = quality - 1
-									end
-								-- else the while loop breaks next round and we can progress
-								end
-							end
-							-- ---------------------------------------------------------------------------------------------------------------
-
-
-							if decoyTable[1] ~= nil then		-- if there are items to chose from
-								-- we have at least one item in the table, so we can try to spawn something!
-								itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-								local poolRNG = decoyTable[itemPosition]
-
-								-- check if the table contains more than one item
-								if decoyTable[2] ~= nil then	-- if yes then...
-
-									-- we still need to see if the players have seen the item
-									while chosenItem == nil and curTotalRemovedItems ~= numTotalItems do	-- loops while we haven't found and item to spawn yet and we haven't checked all
-																		-- the items in the table (numTotalItems)
-										local hasSeenItem = false
-	
-										if seenCollectibles[1] ~= nil then
-											for b, seenItem in ipairs(seenCollectibles) do	-- go through each entry of the table of the items the player have seen
-												if seenItem == poolRNG then		-- if the item Id matches the supposed to spawned item Id then
-																	-- we to look for another vialable item ID
-
-													-- tho we need to try to insert the item ID into the preChosenItem table in case this was the first item selected and all other items have been seen as well.
-													if preChosenItem[1] == nil then	-- no other items have been inserted into the table yet
-														table.insert(preChosenItem, poolRNG)
-													end
-													-- for that we have to remove the item first from the decoy table
-													if decoyTable[itemPosition] ~= nil then		-- there's still one item left
-														table.remove(decoyTable,itemPosition)		
-													end
-													-- then we increase the current number of removed items from the decoy table ('curTotalRemovedItems')
-													curTotalRemovedItems = curTotalRemovedItems + 1		-- the while loop breaks in case it equals the variable 'numTotalItems'
-
-													-- then we have to make sure that the new item ID doesn't get passed into the 'chosenItem' variable
-													hasSeenItem = true
-												end 
-											end
-										end
-
-										-- the 'for'-loop found out that the seen item equals the item id we want to spawn
-										if hasSeenItem == true then
-											-- we try to chose a new item from the (now reduced) decoy table
-											if decoyTable[2] ~= nil then
-												itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-												poolRNG = decoyTable[itemPosition]
-											else
-												if decoyTable[1] ~= nil then		-- there's still one item left
-													poolRNG = decoyTable[1]			
-												end
-											end
-											-- the new item id should now be used in the next iteration of the 'for'-loop
-											-- print(poolRNG)
-										end
-
-										-- if the 'for'-loop hasn't found a match then we pass the original chosen item ID on
-										-- if it found one, then this won't get triggered, as 'hasSeenItem is set to 'true' now
-										if hasSeenItem == false then
-											chosenItem = poolRNG			-- also the 'while'-loop should break, as 'chosenItem' isn't nil anymore
-										end
-									end
-
-									-- we still need to check if curTotalRemovedItems equals numTotalItems now. If it does, then we will have to pass the originally chosen item on
-							      		if curTotalRemovedItems >= numTotalItems 
-									and preChosenItem[1] ~= nil then		-- only to make sure everything worked and the table ins't empty
-								 		chosenItem = preChosenItem[1]
-									end
-								else
-									chosenItem = poolRNG 	-- pass the item ID in order to spawn the item, yeah!
-								end
-							end
-							-- ---------------------------------------------------------------------------------------------------------------
-
-							if chosenItem ~= nil then	-- we check if an item as actually been selected from the decooy table. 
-								-- now we can chose a prize for the item before we spawn it. For that we take the final 'quality' value and later the chosen item ID
-								-- shop price
-								local shopPrice = 15
-
-								-- determine the price
-								if quality < 4 then	-- = quality 0,1 and 2
-									shopPrice = shopPrice + (usedRestockTable[i] * 2)
-									usedPriceTable[i] = shopPrice
-								elseif quality == 4 then	-- = quality 3
-									local priceRNG = ghostRNG:RandomInt(6)	-- + 5
-									shopPrice = shopPrice + (usedRestockTable[i] * 2) + priceRNG
-									usedPriceTable[i] = shopPrice
-								elseif quality == 5 then	-- = quality 4
-									local priceRNG = ghostRNG:RandomInt(11)	-- + 10
-									shopPrice = shopPrice + (usedRestockTable[i] * 2) + priceRNG
-									usedPriceTable[i] = shopPrice
-								end
-
-								ghostShop_MorphItem(ghostRNG,quality,items,chosenItem,itemPosition,shopPrice,i)
-							end
+							-- chose a new item to which the old one gets morphed "rerolled" to
+							ghostShop_ChoseNewItem(ghostRNG, quality, i, items, 1, 1, 0, 1, 0)		
+							-- ghostShop_ChoseNewItem(rng, quality, roll, entity, spawnSign = true , addPrice = true, restock = false, reroll = true, spawnItem = false)
 						end		
 					end
 				end
@@ -1376,14 +1207,8 @@ function GhostShop:onShopItemPickup()
 						-- then we go through the restockTable and find the empty(2) slot again
 						for j = 1, shopLayouts[GameState.backUpLayout][1] do
 
-							local decoyTable = {}		-- stores the item which the players don't have at the moment
-							local chosenItem = nil		-- stores the item Id of the item which should be spawnned in the end
-							local preChosenItem = {}	-- stores the item Id of the item which got originally chosen to be spawned, but first have to be checked if it is a vailable option first
-							local numTotalItems = 0
-							local tablesChecked = 1
-							local curTotalRemovedItems = 0
-
-							if restockTable[j] == 2 then	-- it's empty
+							if restockTable[j] == 2 	-- it's empty
+							and usedFlipTable[j] ~= nil then
 
 								-- check the quality of the found item in the preFlipped table and determine it's quality 
 								if itemConfig:GetCollectible(usedFlipTable[j]).Quality == 0 then
@@ -1405,219 +1230,9 @@ function GhostShop:onShopItemPickup()
 
 								if shopLayouts[usedLayout][j + 1] ~= nil then	-- prevents a small bug from happpening. Somehow sometimes there's one more position than there should. Idk what causes this
 
-									while decoyTable[1] == nil and tablesChecked ~= 5 do			-- while the decoy table is still empty and all 5 tables haven't been checked
-										if storedItems[quality][1] ~= nil then 				-- needs to be checked, because we could have decreased the quality again
-											-- first we have to check which items the players from the curerent quality table already have
-											-- we also need to get the current amount of items in the og table
-											for a, curItem in ipairs(storedItems[quality]) do	-- go through each entry of the current quality table
-												local playerHasCurItem = false
-
-												for i = 0, (game:GetNumPlayers() - 1) do
-													local player = Isaac.GetPlayer(i)
-													-- check if the player has the item
-													if player:IsCoopGhost() == false
-													and player:HasCollectible(curItem) then
-														playerHasCurItem = true
-													end
-												end
-
-												if playerHasCurItem == false then		-- none of the players have the item currently
-													numTotalItems = numTotalItems + 1	-- increase the number of items held in the decoy table
-													table.insert(decoyTable, curItem)	-- insert the items into the decoy table
-												end
-											end
-										end
-
-										-- check if the decoy table empty or not (if empty than the players have the current items already)
-										if decoyTable[1] == nil then
-											-- check if we are already at the quality 0 table
-											if quality == 1 then 	-- all tables have been checked (here 1 means 0)
-												-- increase the number of tables we checked, so that the while loop breaks next round
-												tablesChecked = 5
-
-												-- this also means that we won't spawn an item at all. So we need to spawn a ghost sign
-												local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][j + 1], Vector(0,0), nil):ToEffect()
-												if shopSign:GetData().IsPossessed == nil then
-													local roll = math.random(1,3)
-													if roll == 1 then	-- a possessed sign should be spawned
-														shopSign:GetData().IsPossessed = true
-														numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
-													end
-												end
-
-												-- save the position of the sign
-												-- table.insert(storeSigns,1,shopSign.Position)
-												-- add the shop sign (-1) to the preFlipped table
-												usedFlipTable[j] = -1
-												-- add a placeholder price on this postion
-												usedPriceTable[j] = -99
-											else 
-												-- we need to check another quality table and thus decrease the quality by one
-												quality = quality - 1
-											end
-										-- else the while loop breaks next round and we can progress
-										end
-									end
-									-- ---------------------------------------------------------------------------------------------------------------
-
-									if decoyTable[1] ~= nil then		-- if there are items to chose from
-							
-										-- we have at least one item in the table, so we can try to spawn something!
-										local itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-										local poolRNG = decoyTable[itemPosition]
-		
-										-- check if the table contains more than one item
-										if decoyTable[2] ~= nil then	-- if yes then...
-
-											-- we still need to see if the players have seen the item
-											while chosenItem == nil and curTotalRemovedItems ~= numTotalItems do	-- loops while we haven't found and item to spawn yet and we haven't checked all
-																	-- the items in the table (numTotalItems)
-												local hasSeenItem = false
-
-												if seenCollectibles[1] ~= nil then
-													for b, seenItem in ipairs(seenCollectibles) do	-- go through each entry of the table of the items the player have seen
-														if seenItem == poolRNG then		-- if the item Id matches the supposed to spawned item Id then
-																-- we to look for another vialable item ID
-
-															-- tho we need to try to insert the item ID into the preChosenItem table in case this was the first item selected and all other items have been seen as well.
-															if preChosenItem[1] == nil then	-- no other items have been inserted into the table yet
-																table.insert(preChosenItem, poolRNG)
-															end
-
-															-- for that we have to remove the item first from the decoy table
-															if decoyTable[itemPosition] ~= nil then		-- there's still one item left
-																table.remove(decoyTable,itemPosition)		
-															end
-
-															-- then we increase the current number of removed items from the decoy table ('curTotalRemovedItems')
-															curTotalRemovedItems = curTotalRemovedItems + 1		-- the while loop breaks in case it equals the variable 'numTotalItems'
-
-															-- then we have to make sure that the new item ID doesn't get passed into the 'chosenItem' variable
-															hasSeenItem = true
-														end 
-													end
-												end
-
-												-- the 'for'-loop found out that the seen item equals the item id we want to spawn
-												if hasSeenItem == true then
-													-- we try to chose a new item from the (now reduced) decoy table
-													if decoyTable[2] ~= nil then
-														itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-														poolRNG = decoyTable[itemPosition]
-													else
-														if decoyTable[1] ~= nil then		-- there's still one item left
-															poolRNG = decoyTable[1]			
-														end
-													end
-													-- the new item id should now be used in the next iteration of the 'for'-loop
-													-- print(poolRNG)
-												end
-	
-												-- if the 'for'-loop hasn't found a match then we pass the original chosen item ID on
-												-- if it found one, then this won't get triggered, as 'hasSeenItem is set to 'true' now
-												if hasSeenItem == false then
-													chosenItem = poolRNG			-- also the 'while'-loop should break, as 'chosenItem' isn't nil anymore
-												end
-											end
-
-											-- we still need to check if curTotalRemovedItems equals numTotalItems now. If it does, then we will have to pass the originally chosen item on
-							      				if curTotalRemovedItems >= numTotalItems 
-											and preChosenItem[1] ~= nil then		-- only to make sure everything worked and the table ins't empty
-								 				chosenItem = preChosenItem[1]
-											end
-										else
-											chosenItem = poolRNG 	-- pass the item ID in order to spawn the item, yeah!
-										end
-									end
-									-- ---------------------------------------------------------------------------------------------------------------
-
-									if chosenItem ~= nil then	-- we check if an item as actually been selected from the decooy table. 
-										-- now we can chose a prize for the item before we spawn it. For that we take the final 'quality' value and later the chosen item ID
-										-- shop price
-										local shopPrice = 15
-
-										-- determine the price
-										if quality < 4 then	-- = quality 0,1 and 2
-											shopPrice = shopPrice + (usedRestockTable[j] * 2)
-											usedPriceTable[j] = shopPrice
-										elseif quality == 4 then	-- = quality 3
-											local priceRNG = ghostRNG:RandomInt(6)	-- + 5
-											shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG
-											usedPriceTable[j] = shopPrice
-										elseif quality == 5 then	-- = quality 4
-											local priceRNG = ghostRNG:RandomInt(11)	-- + 10
-											shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG
-											usedPriceTable[j] = shopPrice
-										end
-
-										-- check if the item was bought in the last run
-										local foundItem = false
-										if backupListOne[1] ~= nil then
-											for c, item in ipairs(backupListOne) do
-												if item == chosenItem then
-													foundItem = true
-													-- reevaluate the price
-													shopPrice = 20
-													if quality < 4 then	-- = quality 0,1 and 2
-														usedPriceTable[j] = shopPrice + (usedRestockTable[j] * 2)		 -- store the new shop price
-													elseif quality == 4 then	-- = quality 3
-														local priceRNG = ghostRNG:RandomInt(6)	-- + 5
-														shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG	 	-- costs between 20 - 25
-														usedPriceTable[j] = shopPrice
-													elseif quality == 5 then	-- = quality 4
-														local priceRNG = ghostRNG:RandomInt(11)	-- + 15
-														shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG 		-- costs between 20 - 30
-														usedPriceTable[j] = shopPrice
-													end
-												end
-											end
-										end
-										if foundItem == false		-- item wasn't in the first backup table
-										and backupListTwo[1] ~= nil then
-											for d, item in ipairs(backupListTwo) do
-												if item == chosenItem then
-													-- reevaluate the price
-													shopPrice = 25
-													if quality < 4 then	-- = quality 0,1 and 2
-														usedPriceTable[j] = shopPrice + (usedRestockTable[j] * 2)		 -- store the new shop price
-													elseif quality == 4 then	-- = quality 3
-														local priceRNG = ghostRNG:RandomInt(11)	-- + 10
-														shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG	 	-- costs between 25 - 35
-														usedPriceTable[j] = shopPrice
-													elseif quality == 5 then	-- = quality 4
-														local priceRNG = ghostRNG:RandomInt(16)	-- + 15
-														shopPrice = shopPrice + (usedRestockTable[j] * 2) + priceRNG 		-- costs between 25 - 40
-														usedPriceTable[j] = shopPrice
-													end
-												end
-											end
-										end
-
-										-- apply the Steam Sale synergy
-										if hasSteamSale == true then
-											shopPrice = math.floor(shopPrice / 2)
-										end
-										-- ---------------------------------------------------------------------------------------------------------------
-
-										-- after all of that we can finally spawn the item!!
-										-- spawn the item
-										local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, shopLayouts[usedLayout][j + 1], Vector(0,0), nil) -- :ToPickup()
-										shopItem:ToPickup().AutoUpdatePrice = false
-										shopItem:ToPickup().Price = shopPrice
-
-										-- add the items quality to the usedFlipped table
-										usedFlipTable[j] = chosenItem
-
-										-- all that is left is removing the item ID from the original 'storedItems[quality]'-table
-										for e, ogItemID in ipairs(storedItems[quality]) do
-											if ogItemID == chosenItem then
-												-- print(chosenItem)
-												-- print(storedItems[quality][e])
-												-- remove the item from the table
-												table.remove(storedItems[quality],e)
-											end
-										end
-									end
+									-- chose a new item which replaces the bought one
+									ghostShop_ChoseNewItem(ghostRNG, quality, j, 0, 1, 1, 1, 0, 1)		
+									-- ghostShop_ChoseNewItem(rng, quality, roll, entity placeholder, spawnSign = true , addPrice = true, restock = true, reroll = false, spawnItem = true)
 								end
 							end
 						end
@@ -1630,7 +1245,7 @@ function GhostShop:onShopItemPickup()
 					if entity.Type == EntityType.ENTITY_PICKUP
 					and entity.Variant == PickupVariant.PICKUP_COLLECTIBLE 
 					and entity:ToPickup():IsShopItem() then
-					
+
 						local items = entity
 						-- if not player:GetNumCoins() < items:ToPickup().Price
 						if (player.Position - items.Position):Length() < player.Size + items.Size then
@@ -1649,7 +1264,7 @@ function GhostShop:onShopItemPickup()
 			end
 			-- Glitched Crown synergy
 			if player:IsCoopGhost() == false then
-				
+
 				if player:HasCollectible(CollectibleType.COLLECTIBLE_GLITCHED_CROWN)
 				or player:GetPlayerType() == 21 then
 
@@ -1753,130 +1368,17 @@ function GhostShop:onShopItemPickup()
 				if entity:ToPickup().Variant == PickupVariant.PICKUP_COLLECTIBLE then
 					-- change the item
 					local quality = 0
-					local decoyTable = {}		-- stores the item which the players don't have at the moment
-					local chosenItem = nil		-- stores the item Id of the item which should be spawnned in the end
-					local preChosenItem = {}	-- stores the item Id of the item which got originally chosen to be spawned, but first have to be checked if it is a vailable option first
-					local numTotalItems = 0
-					local tablesChecked = 1
-					local curTotalRemovedItems = 0
 
 					-- get the rng
 					local ghostRNG = RNG()
 					ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
 
 					-- choose a quality
-					quality = ghostRNG:RandomInt(5)
+					quality = ghostRNG:RandomInt(5) + 1
 
-					while decoyTable[1] == nil and tablesChecked ~= 5 do		-- while the decoy table is still empty and all 5 tables haven't been checked
-						if storedItems[quality][1] ~= nil then 	-- needs to be checked, because we could have decreased the quality again
-							-- first we have to check which items the players from the curerent quality table already have
-							-- we also need to get the current amount of items in the og table
-							for a, curItem in ipairs(storedItems[quality]) do	-- go through each entry of the current quality table
-								local playerHasCurItem = false
-	
-								for j = 0, (game:GetNumPlayers() - 1) do
-									local player = Isaac.GetPlayer(j)
-									-- check if the player has the item
-									if player:IsCoopGhost() == false
-									and player:HasCollectible(curItem) then
-										playerHasCurItem = true
-									end
-								end
-								if playerHasCurItem == false then		-- none of the players have the item currently
-									numTotalItems = numTotalItems + 1	-- increase the number of items held in the decoy table
-									table.insert(decoyTable, curItem)	-- insert the items into the decoy table
-								end
-							end
-						end
-
-						-- check if the decoy table empty or not (if empty than the players have the current items already)
-						if decoyTable[1] == nil then
-							-- check if we are already at the quality 0 table
-							if quality == 1 then 	-- all tables have been checked (here 1 means 0)
-								-- increase the number of tables we checked, so that the while loop breaks next round
-								tablesChecked = 5
-
-								entity:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_POOP, false)
-								-- local poopCloud = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.POOF01, 0, pickup.Position, Vector(0,0), nil):ToEffect()
-							else 
-								-- we need to check another quality table and thus decrease the quality by one
-								quality = quality - 1
-							end
-						-- else the while loop breaks next round and we can progress
-						end
-					end
-					-- ---------------------------------------------------------------------------------------------------------------
-					if decoyTable[1] ~= nil then		-- if there are items to chose from
-						-- we have at least one item in the table, so we can try to spawn something!
-						itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-						local poolRNG = decoyTable[itemPosition]
-
-						-- check if the table contains more than one item
-						if decoyTable[2] ~= nil then	-- if yes then...
-
-							-- we still need to see if the players have seen the item
-							while chosenItem == nil and curTotalRemovedItems ~= numTotalItems do	-- loops while we haven't found and item to spawn yet and we haven't checked all
-																		-- the items in the table (numTotalItems)
-								local hasSeenItem = false
-	
-								if seenCollectibles[1] ~= nil then
-									for b, seenItem in ipairs(seenCollectibles) do	-- go through each entry of the table of the items the player have seen
-										if seenItem == poolRNG then		-- if the item Id matches the supposed to spawned item Id then
-													-- we to look for another vialable item ID
-
-											-- tho we need to try to insert the item ID into the preChosenItem table in case this was the first item selected and all other items have been seen as well.
-											if preChosenItem[1] == nil then	-- no other items have been inserted into the table yet
-												table.insert(preChosenItem, poolRNG)
-											end
-											-- for that we have to remove the item first from the decoy table
-											if decoyTable[itemPosition] ~= nil then		-- there's still one item left
-												table.remove(decoyTable,itemPosition)		
-											end
-											-- then we increase the current number of removed items from the decoy table ('curTotalRemovedItems')
-											curTotalRemovedItems = curTotalRemovedItems + 1		-- the while loop breaks in case it equals the variable 'numTotalItems'
-
-											-- then we have to make sure that the new item ID doesn't get passed into the 'chosenItem' variable
-											hasSeenItem = true
-										end 
-									end
-								end
-
-								-- the 'for'-loop found out that the seen item equals the item id we want to spawn
-								if hasSeenItem == true then
-									-- we try to chose a new item from the (now reduced) decoy table
-									if decoyTable[2] ~= nil then
-										itemPosition = ghostRNG:RandomInt(#decoyTable) + 1
-										poolRNG = decoyTable[itemPosition]
-									else
-										if decoyTable[1] ~= nil then		-- there's still one item left
-											poolRNG = decoyTable[1]			
-										end
-									end
-									-- the new item id should now be used in the next iteration of the 'for'-loop
-									-- print(poolRNG)
-								end
-
-								-- if the 'for'-loop hasn't found a match then we pass the original chosen item ID on
-								-- if it found one, then this won't get triggered, as 'hasSeenItem is set to 'true' now
-								if hasSeenItem == false then
-									chosenItem = poolRNG			-- also the 'while'-loop should break, as 'chosenItem' isn't nil anymore
-								end
-							end
-
-							-- we still need to check if curTotalRemovedItems equals numTotalItems now. If it does, then we will have to pass the originally chosen item on
-							if curTotalRemovedItems >= numTotalItems 
-							and preChosenItem[1] ~= nil then		-- only to make sure everything worked and the table ins't empty
-								chosenItem = preChosenItem[1]
-							end
-						else
-							chosenItem = poolRNG 	-- pass the item ID in order to spawn the item, yeah!
-						end
-					end
-					-- ---------------------------------------------------------------------------------------------------------------
-
-					if chosenItem ~= nil then	-- we check if an item as actually been selected from the decooy table. 
-						entity:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, false)				
-					end
+					-- chose a new item to which the old one gets morphed (not rerolled!) to
+					ghostShop_ChoseNewItem(ghostRNG, quality, 1, entity, 0, 0, 0, 0, 0)		
+					-- ghostShop_ChoseNewItem(rng, quality, roll placeholder, entity, spawnSign = false , addPrice = false, restock = false, reroll = false, spawnItem = false)
 				end
 			end
 			-- reset Mystery Gift
@@ -2001,17 +1503,11 @@ function GhostShop:onShopEnter()
 
 					if hasUsedFMN == false then	-- used to check if the player has used the 'Forget Me Now' item. Prevents another set of items to be spawned
 						-- -------------------------------------------------------------------
-					
-						local decoyTable = {}		-- stores the 
-						local chosenItem = nil		-- stores the item Id of the item which should be spawnned in the end
-						local preChosenItem = {}	-- stores the item Id of the item which got originally chosen to be spawned, but first have to be checked if it is a vailable option first
-						local numTotalItems = 0
-						local tablesChecked = 1
-						local curTotalRemovedItems = 0
 
 						if shopLayouts[usedLayout][position + 1] ~= nil then	-- prevents a small bug from happpening. Somehow sometimes there's one more position than there should. Idk what causes this
-							-- chose the items fomr the preFlipped table	
-							ghostShop_ChoseNewItem(ghostRNG, quality, position)
+							-- chose the items for the preFlipped table	
+							ghostShop_ChoseNewItem(ghostRNG, quality, position, 0, 1, 1, 0, 0, 1)	
+							-- ghostShop_ChoseNewItem(rng, quality, roll, entity placeholder, spawnSign = true, addPrice = true, restock = false, reroll = false, spawnItem = true)
 						end
 						-- -------------------------------------------------------------------
 					else	-- we have to spawn the existing layout
@@ -2115,7 +1611,7 @@ function GhostShop:onShopEnter()
 									end
 								end
 								if hasFlipped == true then	-- one of the players has the flip item
-									-- look through the postFlipped table to see if the flip effect should be a shop sign or a questionmark
+									-- look through the preFlipped table to see if the flip effect should be a shop sign or a questionmark
 									if preFlipped[i] == -1 then	-- contains a shop sign
 										local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0),nil):ToEffect()
 										flipEffect:GetSprite():Play("Sign", true)
@@ -2143,7 +1639,7 @@ function GhostShop:onShopEnter()
 		-- restock synergy
 		dontRestock = false
 	end
-	-- if the player visted the ghost shop make that the door of the normal shop opens. That should give player a clue that
+	-- if the player visted the ghost shop make that the door of the normal shop opens. That should give player a clue that something changed
 
 	if (stageType == StageType.STAGETYPE_REPENTANCE or stageType == StageType.STAGETYPE_REPENTANCE_B)
 	and stage == LevelStage.STAGE1_2
@@ -2614,6 +2110,7 @@ function GhostShop:onCoopGhostUpdate(ghost)
 		ghost.Velocity = Vector(0,0)
 
 		if data.itemSpawned == nil then
+
 			-- get the rng
 			local ghostRNG = RNG()
 			ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
