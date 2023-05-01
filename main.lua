@@ -85,7 +85,6 @@ local hasUsedMyGi = {false}	-- keeps track if a player used the Mystery Gift. ha
 local flipped = 1		-- keeps track if a player flipped the items and on which flipped site we are on currently 1 = normal 2 = flipped
 local preFlipped = {}		-- stores the items of the regular layout of the ghost shop
 local postFlipped = {}		-- stores the items of the version of layout of the ghost shop once the player uses the Flip item
-local firstFlipp = false 	-- keeps track if a player used Flip for the first time in the ghost shop
 
 local preAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the pre flipped shop
 local postAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the post flipped shop
@@ -109,6 +108,17 @@ local shopStayOpen = false	-- keeps track if the shop door has played the openin
 
 -- local spawnedCoopGhosts = 0	-- necessary?
 
+
+local function ghostShop_SpawnGhostSign(position, chance)
+	local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, position, Vector(0,0), nil):ToEffect()
+	if shopSign:GetData().IsPossessed == nil then
+		local ghostRoll = math.random(1,chance)
+		if ghostRoll == 1 then	-- a possessed sign should be spawned
+			shopSign:GetData().IsPossessed = true
+			numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
+		end
+	end
+end
 
 local function ghostShop_ChoseNewItem(rng, quality, roll, item, spawnSign, addPrice, restock, reroll, spawnItem)			-- used to chose the items which have to be spawned. 
 	local decoyTable = {}		-- stores the item which the players don't have at the moment
@@ -156,14 +166,7 @@ local function ghostShop_ChoseNewItem(rng, quality, roll, item, spawnSign, addPr
 				if spawnSign == 1 then 	-- 1 == true, used in order to make the function universal
 
 					-- this also means that we won't spawn an item at all. So we need to spawn a ghost sign
-					local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil):ToEffect()
-					if shopSign:GetData().IsPossessed == nil then
-						local ghostRoll = math.random(1,3)
-						if ghostRoll == 1 then	-- a possessed sign should be spawned
-							shopSign:GetData().IsPossessed = true
-							numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
-                                 		end
-					end
+					ghostShop_SpawnGhostSign(shopLayouts[usedLayout][roll + 1], 3)	-- ghostShop_SpawnGhostSign(spawn position)
 
 					if restock == 1 		-- 1 == true, in case of rerolling or restocking the shopSign should simply get added to the usedFlip table
 					or reroll == 1 then	
@@ -515,6 +518,53 @@ local function ghostShop_SpawnCoopGhost(rng)
 				end
 			end
 		end
+	end
+end
+
+local function ghostShop_ItemBlacklist(itemID)
+	if itemID ~= 43		-- doesn't exist
+	and itemID ~= 59		-- doesn't exist
+	and itemID ~= 61		-- doesn't exist
+	and itemID ~= 235		-- doesn't exist
+	and itemID ~= 666		-- doesn't exist
+	and itemID ~= 238		-- Key Piece 1
+	and itemID ~= 239		-- Key Piece 2
+	and itemID ~= 327		-- Polariod
+	and itemID ~= 328		-- Negative
+	and itemID ~= 550		-- Broken Shovel 1
+	and itemID ~= 551		-- Broken Shovel 2
+	and itemID ~= 552		-- Broken Shovel
+	and itemID ~= 626		-- Knife Piece 1
+	and itemID ~= 668 then	-- Dad's Note 
+		return true
+	else
+		return false
+	end
+end
+
+local function ghostShop_SaveHeldItems(itemID)
+	local itemConfig = Isaac.GetItemConfig()
+
+	-- first check which quality the item has
+	if itemConfig:GetCollectible(itemID).Quality == 0 then
+		table.insert(GameState.savedItems1,1, itemID)	-- insert and thus save the item into the quality 0 table
+	elseif itemConfig:GetCollectible(itemID).Quality == 1 then
+		table.insert(GameState.savedItems2,1, itemID)	-- insert and thus save the item into the quality 1 table
+	elseif itemConfig:GetCollectible(itemID).Quality == 2 then
+		table.insert(GameState.savedItems3,1, itemID)	-- insert and thus save the item into the quality 2 table
+	elseif itemConfig:GetCollectible(itemID).Quality == 3 then
+		table.insert(GameState.savedItems4,1, itemID)	-- insert and thus save the item into the quality 3 table
+	elseif itemConfig:GetCollectible(itemID).Quality == 4 then
+		table.insert(GameState.savedItems5,1, itemID)	-- insert and thus save the item into the quality 4 table
+	end
+
+	-- store the items from coop players again for the lil coop ghosts
+	if i == 1 then		-- player 2
+		table.insert(GameState.coopItems1, itemID)
+	elseif i == 2 then	-- player 3
+		table.insert(GameState.coopItems2, itemID)
+	elseif i == 3 then	-- player 4
+		table.insert(GameState.coopItems3, itemID)
 	end
 end
 
@@ -1548,79 +1598,45 @@ function GhostShop:onShopEnter()
 			and NormalShopVisit == false then
 				local newNumLittleGhosts = 0
 				-- print(storeSigns[1])
-				for i = 1, shopLayouts[GameState.backUpLayout][1] do
-					if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then
+				for i = 1, shopLayouts[usedLayout][1] do
+					if shopLayouts[usedLayout][i + 1] ~= nil then
 						-- check for the flipped layouts
+						local layoutOne = nil
+						local layoutTwo = nil
+
 						if flipped == 1 then		-- it's the normal Layout
-							if preFlipped[i] == -1 then
-								local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0), nil):ToEffect()
-								if shopSign:GetData().IsPossessed == nil 
-								and numLittleGhosts > newNumLittleGhosts then
-									local roll = math.random(1,3)
-									if roll == 1 then	-- a possessed sign should be spawned
-										shopSign:GetData().IsPossessed = true
-									end
-								end
-							end
-							if postFlipped[1] ~= nil then		-- the layout has been flipped before
-								local hasFlipped = false
-
-								for i = 0, (game:GetNumPlayers() - 1) do
-									local player = Isaac.GetPlayer(i)
-									local playerData = player:GetData()
-
-									if player:IsCoopGhost() == false
-									and player:HasCollectible(CollectibleType.COLLECTIBLE_FLIP) then
-										hasFlipped = true
-									end
-								end
-								if hasFlipped == true then	-- one of the players has the flip item
-									-- look through the postFlipped table to see if the flip effect should be a shop sign or a questionmark
-									if postFlipped[i] == -1 then	-- contains a shop sign
-										local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0),nil):ToEffect()
-										flipEffect:GetSprite():Play("Sign", true)
-										flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
-									elseif postFlipped[i] > 0 then	-- contains an item
-										local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0),nil):ToEffect()
-										flipEffect:GetSprite():Play("Questionmark", true)
-										flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
-									end
-								end
-							end
+							layoutOne = preFlipped
+							layoutTwo = postFlipped
 						elseif flipped == 2 then	-- it's the flipped Layout
-							if postFlipped[i] == -1 then
-								local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0), nil):ToEffect()
-								if shopSign:GetData().IsPossessed == nil 
-								and numLittleGhosts > newNumLittleGhosts then
-									local roll = math.random(1,3)
-									if roll == 1 then	-- a possessed sign should be spawned
-										shopSign:GetData().IsPossessed = true
-									end
+							layoutOne = postFlipped
+							layoutTwo = preFlipped
+						end
+							
+						if layoutOne[i] == -1 then
+								ghostShop_SpawnGhostSign(shopLayouts[usedLayout][i + 1], 3)
+						end
+						if postFlipped[1] ~= nil then		-- the layout has been flipped before
+							local hasFlipped = false
+
+							for i = 0, (game:GetNumPlayers() - 1) do
+								local player = Isaac.GetPlayer(i)
+								local playerData = player:GetData()
+
+								if player:IsCoopGhost() == false
+								and player:HasCollectible(CollectibleType.COLLECTIBLE_FLIP) then
+									hasFlipped = true
 								end
 							end
-							if postFlipped[1] ~= nil then		-- the layout has been flipped before
-								local hasFlipped = false
-
-								for i = 0, (game:GetNumPlayers() - 1) do
-									local player = Isaac.GetPlayer(i)
-									local playerData = player:GetData()
-
-									if player:IsCoopGhost() == false
-									and player:HasCollectible(CollectibleType.COLLECTIBLE_FLIP) then
-										hasFlipped = true
-									end
-								end
-								if hasFlipped == true then	-- one of the players has the flip item
-									-- look through the preFlipped table to see if the flip effect should be a shop sign or a questionmark
-									if preFlipped[i] == -1 then	-- contains a shop sign
-										local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0),nil):ToEffect()
-										flipEffect:GetSprite():Play("Sign", true)
-										flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
-									elseif preFlipped[i] > 0 then	-- contains an item
-										local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0),nil):ToEffect()
-										flipEffect:GetSprite():Play("Questionmark", true)
-										flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
-									end
+							if hasFlipped == true then	-- one of the players has the flip item
+								-- look through the postFlipped table to see if the flip effect should be a shop sign or a questionmark
+								if layoutTwo[i] == -1 then	-- contains a shop sign
+									local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[usedLayout][i + 1], Vector(0,0),nil):ToEffect()
+									flipEffect:GetSprite():Play("Sign", true)
+									flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
+								elseif layoutTwo[i] > 0 then	-- contains an item
+									local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, shopLayouts[usedLayout][i + 1], Vector(0,0),nil):ToEffect()
+									flipEffect:GetSprite():Play("Questionmark", true)
+									flipEffect.Position = Vector((flipEffect.Position.X) + 12, (flipEffect.Position.Y) - 17)
 								end
 							end
 						end
@@ -1694,20 +1710,8 @@ function GhostShop:onNewFloor(_)
 				for j = 1, 732 do
 					if player:HasCollectible(j) then
 				
-						if j ~= 43		-- doesn't exist
-						and j ~= 59		-- doesn't exist
-						and j ~= 61		-- doesn't exist
-						and j ~= 235		-- doesn't exist
-						and j ~= 666		-- doesn't exist
-						and j ~= 238		-- Key Piece 1
-						and j ~= 239		-- Key Piece 2
-						and j ~= 327		-- Polariod
-						and j ~= 328		-- Negative
-						and j ~= 550		-- Broken Shovel 1
-						and j ~= 551		-- Broken Shovel 2
-						and j ~= 552		-- Broken Shovel
-						and j ~= 626		-- Knife Piece 1
-						and j ~= 668 then	-- Dad's Note 
+						if ghostShop_ItemBlacklist(j) == true then	-- ghostShop_ItemBlacklist(ID of the item)
+
 							-- insert the item in the temporary table
 							if temporaryStored[(i + 1)] ~= nil then
 								table.insert(temporaryStored[(i + 1)],1, j)
@@ -1727,24 +1731,11 @@ function GhostShop:onNewFloor(_)
 			for j = 1, 732 do
 				if player:IsCoopGhost() == false
 				and player:HasCollectible(j) then
-				
-					if j ~= 43		-- doesn't exist
-					and j ~= 59		-- doesn't exist
-					and j ~= 61		-- doesn't exist
-					and j ~= 235		-- doesn't exist
-					and j ~= 666		-- doesn't exist
-					and j ~= 238		-- Key Piece 1
-					and j ~= 239		-- Key Piece 2
-					and j ~= 327		-- Polariod
-					and j ~= 328		-- Negative
-					and j ~= 550		-- Broken Shovel 1
-					and j ~= 551		-- Broken Shovel 2
-					and j ~= 552		-- Broken Shovel
-					and j ~= 626		-- Knife Piece 1
-					and j ~= 668 then	-- Dad's Note 
+					
+					if ghostShop_ItemBlacklist(j) == true then	-- ghostShop_ItemBlacklist(ID of the item)
+
 						-- insert the item in the temporary table
 						table.insert(temporaryStored[1],1, j)
-						print(temporaryStored[1][1])
 					end
 				end
 			end
@@ -2105,7 +2096,7 @@ function GhostShop:onCoopGhostUpdate(ghost)
 		sprite:Play("Death")
 	end
 	if sprite:IsPlaying("Death") then
-		local ghostTable = data.HasTable -- stores the table the item should be spawned from
+		local ghostTable = data.HasTable 				-- stores the table the item should be spawned from
 		ghost.EntityCollisionClass = EntityCollisionClass.ENTCOLL_NONE	-- it's shouldn't collide with anyhting once it's dead
 		ghost.Velocity = Vector(0,0)
 
@@ -2120,7 +2111,7 @@ function GhostShop:onCoopGhostUpdate(ghost)
 			local tableChecked = 1
 
 			while decoyTable[1] == nil and tableChecked ~= 5 do				-- while the decoy table is still empty and table hasn't been checked
-				if storedCoopItems[ghostTable][2] ~= nil then 	-- needs to be checked, because we could have decreased the quality again
+				if storedCoopItems[ghostTable][2] ~= nil then 				-- needs to be checked, because we could have decreased the quality again
 					-- first we have to check which items the players from the curerent quality table already have
 					-- we also need to get the current amount of items in the og table
 					for a, curItem in ipairs(storedCoopItems[ghostTable]) do	-- go through each entry of the current quality table
@@ -2197,15 +2188,12 @@ end
 GhostShop:AddCallback(ModCallbacks.MC_ENTITY_TAKE_DMG, GhostShop.onCoopGhostDeath, GhostShopMod.ENTITY_GS_COOP_GHOST)
 
 function GhostShop:onExit(_)
-	local itemConfig = Isaac.GetItemConfig()
-	local room = game:GetRoom()
-	local roomType = room:GetType()
-
 	local level = game:GetLevel()
 	local stage = level:GetStage()
 	local stageType = level:GetStageType()
 
-	-- reset the Gamestate tables
+	-- ---------------------- --
+	-- reset Gamestate tables --
 	GameState.savedItems1 = {}
 	GameState.savedItems2 = {}
 	GameState.savedItems3 = {}
@@ -2216,12 +2204,26 @@ function GhostShop:onExit(_)
 	GameState.coopItems2 = {}
 	GameState.coopItems3 = {}
 
-	-- update the preFlipped tables with the items which are currently in them
-	GameState.preFlippedItems = preFlipped		
-	GameState.postFlippedItems = postFlipped
-	-- also save which side we are currently flipped to
+	-- ---------------------- --
+	-- update Gamestate tables --
+	-- seenItems
+	GameState.seenItems = seenCollectibles		-- then refill the table with the seen items in the current run
+	
+	-- the different shopping lists
+	GameState.shoppingList = shoppingList
+	GameState.backupShoppingListOne = backupListOne
+	GameState.backupShoppingListTwo = backupListTwo
+
+	-- the different item prices
+	GameState.prePrice = prePrice	
+	GameState.postPrice = postPrice
+	GameState.preAddRestockPrice = preAddRestockPrice	
+	GameState.postAddRestockPrice = postAddRestockPrice
+
+
+	-- save which side we are currently flipped to. -2 is the indicator for the normal layout, -3 is the one for the flipped layout
 	if preFlipped[1] ~= nil then	-- we make sure the item were spawned in the ghost shop
-		if preFlipped[(shopLayouts[GameState.backUpLayout][1]) + 1] == nil then
+		if preFlipped[(shopLayouts[usedLayout][1]) + 1] == nil then
 			if flipped == 1 then		
 				table.insert(preFlipped, -2)
 			elseif flipped == 2 then	
@@ -2229,35 +2231,18 @@ function GhostShop:onExit(_)
 			end
 		else
 			if flipped == 1 then		
-				preFlipped[(shopLayouts[GameState.backUpLayout][1]) + 1] = -2
+				preFlipped[(shopLayouts[usedLayout][1]) + 1] = -2
 			elseif flipped == 2 then	
-				preFlipped[(shopLayouts[GameState.backUpLayout][1]) + 1] = -3
+				preFlipped[(shopLayouts[usedLayout][1]) + 1] = -3
 			end
 		end
 	end
+	-- update the preFlipped tables with the items which are currently in them
+	GameState.preFlippedItems = preFlipped		
+	GameState.postFlippedItems = postFlipped
 
-	-- update the seenItems
-	GameState.seenItems = seenCollectibles		-- then refill the table with the seen items in the current run
-	
-	-- update the different shopping lists
-	GameState.shoppingList = shoppingList
-	GameState.backupShoppingListOne = backupListOne
-	GameState.backupShoppingListTwo = backupListTwo
-
-	-- update the different item prices
-	GameState.prePrice = prePrice	
-	GameState.postPrice = postPrice
-	GameState.preAddRestockPrice = preAddRestockPrice	
-	GameState.postAddRestockPrice = postAddRestockPrice
-
-	-- store the position of the store signs	-- needs flip compatibilty !!
-	if storeSigns[1] ~= nil then
-		GameState.savedStoreSigns = storeSigns
-		-- print(GameState.savedStoreSigns[1])
-	end
-
-
-	-- update the Gamestate tables with the items the player currently has
+	-- ------------------------------------------------------------------- --
+	-- update the Gamestate tables with the items the player currently has --
 	for i = 0, (game:GetNumPlayers() - 1) do
 		local player = Isaac.GetPlayer(i)
 		local playerData = player:GetData()
@@ -2271,35 +2256,16 @@ function GhostShop:onExit(_)
 			table.insert(GameState.coopItems3, 1, player:GetPlayerType())
 		end
 
-		-- check if the player dies in the mother chase	(currently doesn' seem to work?)
+		-- check if the player dies in the mother chase	
 		if (stageType == StageType.STAGETYPE_REPENTANCE or stageType == StageType.STAGETYPE_REPENTANCE_B)
-		and stage == LevelStage.STAGE2_2
-		-- and room:IsMirrorWorld() == true then	
+		and stage == LevelStage.STAGE2_2	
 		and GetDimension(level) == 1 then	-- should detect the Mine Chase (thanks to Wolfsauge)
 
 			-- go through their corresponding temporary table and check their quality
 			for k, itemID in ipairs(temporaryStored[(i + 1)]) do
 
-				-- check which quality the item has
-				if itemConfig:GetCollectible(itemID).Quality == 0 then
-					table.insert(GameState.savedItems1,1, itemID)	-- insert the item into the quality 0 table
-				elseif itemConfig:GetCollectible(itemID).Quality == 1 then
-					table.insert(GameState.savedItems2,1, itemID)	-- insert the item into the quality 1 table
-				elseif itemConfig:GetCollectible(itemID).Quality == 2 then
-					table.insert(GameState.savedItems3,1, itemID)	-- insert the item into the quality 2 table
-				elseif itemConfig:GetCollectible(itemID).Quality == 3 then
-					table.insert(GameState.savedItems4,1, itemID)	-- insert the item into the quality 3 table
-				elseif itemConfig:GetCollectible(itemID).Quality == 4 then
-					table.insert(GameState.savedItems5,1, itemID)	-- insert the item into the quality 4 table
-				end
-				-- store the items from coop players again for the lil coop ghosts
-				if i == 1 then		-- player 2
-					table.insert(GameState.coopItems1, itemID)
-				elseif i == 2 then	-- player 3
-					table.insert(GameState.coopItems2, itemID)
-				elseif i == 3 then	-- player 4
-					table.insert(GameState.coopItems3, itemID)
-				end
+				-- save the item the player currently has
+					ghostShop_SaveHeldItems(itemID)		-- ghostShop_SaveHeldItems(ID of the item)
 			end
 		else
 			-- check if the player is a coop ghost
@@ -2307,67 +2273,20 @@ function GhostShop:onExit(_)
 				-- go through all normal items
 				for j = 1, 732 do
 					if player:HasCollectible(j) then
-				
-						if j ~= 43		-- doesn't exist
-						and j ~= 59		-- doesn't exist
-						and j ~= 61		-- doesn't exist
-						and j ~= 235		-- doesn't exist
-						and j ~= 666		-- doesn't exist
-						and j ~= 238		-- Key Piece 1
-						and j ~= 239		-- Key Piece 2
-						and j ~= 327		-- Polariod
-						and j ~= 328		-- Negative
-						and j ~= 550		-- Broken Shovel 1
-						and j ~= 551		-- Broken Shovel 2
-						and j ~= 552		-- Broken Shovel
-						and j ~= 626		-- Knife Piece 1
-						and j ~= 668 then	-- Dad's Note 
-							-- check which quality the item has
-							if itemConfig:GetCollectible(j).Quality == 0 then
-								table.insert(GameState.savedItems1,1, j)	-- insert the item into the quality 0 table
-							elseif itemConfig:GetCollectible(j).Quality == 1 then
-								table.insert(GameState.savedItems2,1, j)	-- insert the item into the quality 1 table
-							elseif itemConfig:GetCollectible(j).Quality == 2 then
-								table.insert(GameState.savedItems3,1, j)	-- insert the item into the quality 2 table
-							elseif itemConfig:GetCollectible(j).Quality == 3 then
-								table.insert(GameState.savedItems4,1, j)	-- insert the item into the quality 3 table
-							elseif itemConfig:GetCollectible(j).Quality == 4 then
-								table.insert(GameState.savedItems5,1, j)	-- insert the item into the quality 4 table
-							end
-							-- store the items from coop players again for the lil coop ghosts
-							if i == 1 then		-- player 2
-								table.insert(GameState.coopItems1, j)
-							elseif i == 2 then	-- player 3
-								table.insert(GameState.coopItems2, j)
-							elseif i == 3 then	-- player 4
-								table.insert(GameState.coopItems3, j)
-							end
+
+						-- check if one of the items shoudn't be saved
+						if ghostShop_ItemBlacklist(j) == true then		-- ghostShop_ItemBlacklist(ID of the item)
+							-- save the item the player currently has
+							ghostShop_SaveHeldItems(j)			-- ghostShop_SaveHeldItems(ID of the item)
 						end
 					end
 				end
 			else		-- ...so the player is a coop ghost
-				-- go through their corresponding temporary table and check their quality
+				-- go through their corresponding temporary item table and check the quality of them
 				for k, itemID in ipairs(temporaryStored[(i + 1)]) do
-					-- check which quality the item has
-					if itemConfig:GetCollectible(itemID).Quality == 0 then
-						table.insert(GameState.savedItems1,1, itemID)	-- insert the item into the quality 0 table
-					elseif itemConfig:GetCollectible(itemID).Quality == 1 then
-						table.insert(GameState.savedItems2,1, itemID)	-- insert the item into the quality 1 table
-					elseif itemConfig:GetCollectible(itemID).Quality == 2 then
-						table.insert(GameState.savedItems3,1, itemID)	-- insert the item into the quality 2 table
-					elseif itemConfig:GetCollectible(itemID).Quality == 3 then
-						table.insert(GameState.savedItems4,1, itemID)	-- insert the item into the quality 3 table
-					elseif itemConfig:GetCollectible(itemID).Quality == 4 then
-						table.insert(GameState.savedItems5,1, itemID)	-- insert the item into the quality 4 table
-					end
-					-- store the items from coop players again for the lil coop ghosts
-					if i == 1 then		-- player 2
-						table.insert(GameState.coopItems1, itemID)
-					elseif i == 2 then	-- player 3
-						table.insert(GameState.coopItems2, itemID)
-					elseif i == 3 then	-- player 4
-						table.insert(GameState.coopItems3, itemID)
-					end
+
+					-- save the item the player currently has
+					ghostShop_SaveHeldItems(itemID)			-- ghostShop_SaveHeldItems(ID of the item)
 				end
 			end
 		end
