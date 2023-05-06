@@ -40,6 +40,8 @@ local usedLayout = 0		-- saves which shop layout is used for the ghost shop
 -- extra bonuses
 local luckyBonus = 0		-- depends on the player getting the lucky shop layout. Is always a + 4 (~ 1 quality)
 local hasWon = false		-- true if an end game boss is beaten
+local deathBonus = 0		-- depends on the amount of stages the player cleared before dying. Increases the item quality
+local winBonus = 0		-- depends on which end boss the player managed to beat. Will reset deathbonus to 0.
 
 -- general quality
 local itemQuality = {}		-- stores the differnet item qualities. The table position correlates with the shopLayout table position + 1
@@ -510,15 +512,19 @@ local function ghostShop_SpawnCoopGhost(rng)
 					coopGhosts.EntityCollisionClass = EntityCollisionClass.ENTCOLL_PLAYERONLY
 					-- make them move like a player ghost
 					coopGhosts:GetSprite():Play("Idle", true)
-					-- give the ghost a fitting sprite (+ mod compatibility)
-					-- if storedCoopItems[k][1] == 8 then
-					-- 	coopGhosts:GetSprite():ReplaceSpritesheet(3, "custom-coop-ghosts_2519706865/resources/gfx/characters/ghost/ghost_lazarus_hair.png")
-					-- 	coopGhosts:GetSprite():LoadGraphics()
-					-- end
 				end
 			end
 		end
 	end
+end
+
+
+local function ghostShop_ReplaceGhost(entity, pathOne, pathTwo)
+	local sprite = entity:GetSprite()
+
+	sprite:ReplaceSpritesheet(0, pathOne)
+	sprite:ReplaceSpritesheet(1, pathTwo)
+	sprite:LoadGraphics()
 end
 
 local function ghostShop_ItemBlacklist(itemID)
@@ -634,9 +640,9 @@ function GhostShop:onNewStart(bool)
 	-- print("Game Start")
 	
 	if bool == false then		-- the start of a complete new game/run
-		local deathBonus = GameState.deathBonus - 1		-- depends on the amount of stages the player cleared before dying. Increases the item quality
-		local winBonus = GameState.winBonus			-- depends on which end boss the player managed to beat. Will reset deathbonus to 0.
-		luckyBonus = 0						-- depends which layout will be used in the end
+		deathBonus = GameState.deathBonus		
+		winBonus = GameState.winBonus			
+		luckyBonus = 0					-- depends which layout will be used in the end
 
 		-- create a back up table. This way the json table can be updated on the fly once the player loses or closes the game
 		GameState.backupItems1 = GameState.savedItems1
@@ -735,6 +741,8 @@ function GhostShop:onNewStart(bool)
 		-- now reset the bonus since they don't have a use anymore
 		GameState.deathBonus = 0
 		GameState.winBonus = 0
+		deathBonus = 0
+		winBonus = 0
 
 		-- reset the store sign position table
 		storeSigns = {}
@@ -843,6 +851,7 @@ function GhostShop:onNewStart(bool)
 		shopStayOpen = false
 		seenCollectibles = {}
 		GameState.seenItems = {}			-- first lets reset it
+		hasWon = false
 
 	elseif bool == true then	-- the run continues
 		-- note this might can be done in a way which only does this if the player can still get the ghost shop.
@@ -880,9 +889,9 @@ function GhostShop:onNewStart(bool)
 		postFlipped = GameState.postFlippedItems
 
 		-- make sure that the flipped state is tracked properly.
-		if preFlipped[(shopLayouts[GameState.backUpLayout][1]) + 1] == -2 then		-- this checks the value for the flipped state which we added in the `Mod.onExit` function
+		if preFlipped[(shopLayouts[usedLayout][1]) + 1] == -2 then		-- this checks the value for the flipped state which we added in the `Mod.onExit` function
 			flipped = 1
-		elseif preFlipped[(shopLayouts[GameState.backUpLayout][1]) + 1] == -3 then
+		elseif preFlipped[(shopLayouts[usedLayout][1]) + 1] == -3 then
 			flipped = 2
 		end
 
@@ -909,6 +918,10 @@ function GhostShop:onNewStart(bool)
 
 		-- make sure the seen items are tracked properly
 		seenCollectibles = GameState.seenItems
+
+		-- win and death bonus
+		deathBonus = GameState.deathBonus
+		winBonus = GameState.winBonus
 	end
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, GhostShop.onNewStart)
@@ -1679,33 +1692,34 @@ function GhostShop:onShopEnter()
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, GhostShop.onShopEnter)
 
+-- ----------------------------------------- --
+-- Floor/Death bonus & Mine Chase/Coop stuff --
+-- ----------------------------------------- --
 function GhostShop:onNewFloor(_)
 	local itemConfig = Isaac.GetItemConfig()
 	local level = game:GetLevel()
 	local stage = level:GetStage()
 	local stageType = level:GetStageType()
 
-	-- only increased the counter if the player hasn't won yet
+	-- ------------------------------------------------------------------- --
+	-- only increased the floor bonus counter if the player hasn't won yet --
 	if hasWon == false then
-		-- print(GameState.deathBonus)
-		if GameState.deathBonus == nil then	-- prevents the debug console to print a small error message the first time a player uses the mod
-			GameState.deathBonus = 0
-		end
-		GameState.deathBonus = GameState.deathBonus + 1
-	end
-	if GameState.winBonus == nil then	-- prevents the debug console to print a small error message the first time a player uses the mod
-		GameState.winBonus = 0	
+		deathBonus = deathBonus + 1
 	end
 
-	-- temporary store the items the players have (in case of coop babies or death in the mother chase sequence)
+	-- ------------------------------------------ --
+	-- temporary store the items the players have --
+	-- sadly unavoidable in case of coop babies or death in the mine chase sequence
 	if game:GetNumPlayers() > 1 then	-- stuff which we do if there are more than 1 player aka coop happens
 		for i = 0, (game:GetNumPlayers() - 1) do
 			local player = Isaac.GetPlayer(i)
+			local coopTable = (i + 1)		-- for coop player tables
+
 			if player:IsCoopGhost() == false then	-- player is still alive.. in a way
 				-- go through all normal items (not optimal I know...)
 				-- reset the table we draw later from
-				if temporaryStored[(i + 1)][1] ~= nil then	-- there's an item in the table slot!
-					temporaryStored[(i + 1)] = {}
+				if temporaryStored[coopTable][1] ~= nil then	-- there's an item in the table slot!
+					temporaryStored[coopTable] = {}
 				end
 				for j = 1, 732 do
 					if player:HasCollectible(j) then
@@ -1713,8 +1727,8 @@ function GhostShop:onNewFloor(_)
 						if ghostShop_ItemBlacklist(j) == true then	-- ghostShop_ItemBlacklist(ID of the item)
 
 							-- insert the item in the temporary table
-							if temporaryStored[(i + 1)] ~= nil then
-								table.insert(temporaryStored[(i + 1)],1, j)
+							if temporaryStored[coopTable] ~= nil then
+								table.insert(temporaryStored[coopTable],1, j)
 							end
 						end
 					end
@@ -1747,36 +1761,37 @@ GhostShop:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, GhostShop.onNewFloor)
 function GhostShop:onEndBossKill(entity)
 	local data = entity:GetData()
 	local motherKill = false
+
 	if entity:IsDead() -- is it dead?
 	and data.Died == nil then -- did it already die
 		data.Died = true -- well now it is dead	
 		-- check which boss was killed	
 		if entity.Type == EntityType.ENTITY_THE_LAMB then
-			GameState.winBonus = 7
+			winBonus = 7
 		elseif entity.Type == EntityType.ENTITY_ISAAC and entity.Variant == 1 then			-- blue baby
 			if hasWon == false then	-- hasn't killed Hush
-				GameState.winBonus = 5
+				winBonus = 5
 			end
 		elseif entity.Type == EntityType.ENTITY_MEGA_SATAN_2 then
-			GameState.winBonus = 12
+			winBonus = 12
 		elseif entity.Type == EntityType.ENTITY_HUSH then
-			GameState.winBonus = 15
+			winBonus = 15
 		elseif entity.Type == EntityType.ENTITY_DELIRIUM then
-			GameState.winBonus = 20
+			winBonus = 20
 		elseif entity.Type == EntityType.ENTITY_MOTHER then
 			if entity.Variant == 10 then
-				GameState.winBonus = 20		
+				winBonus = 20		
 			else
-				 motherKill = true
+				motherKill = true
 			end
 		elseif entity.Type == EntityType.ENTITY_DOGMA then
-			GameState.winBonus = 15
+			winBonus = 15
 		elseif entity.Type == EntityType.ENTITY_BEAST then
-			GameState.winBonus = 20
+			winBonus = 20
 		end
-		-- print(GameState.winBonus)
+		
 		if motherKill == false then		-- prevents the first phase of mother to nullify the death bonus
-			GameState.deathBonus = 1 	-- prevents the death bonus to be negative
+			deathBonus = 1 	-- prevents the death bonus to be negative
 			hasWon = true
 		end
 	end
@@ -1950,8 +1965,8 @@ function GhostShop:onCreditCardUse(card)
 			usedFlipTable = postFlipped
 		end
 		-- reduce the price of the shopt items to 0 
-		for i = 1, shopLayouts[GameState.backUpLayout][1] do			-- counts through 1, 2, 3, 4....
-			if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then	-- go through all the shop item positions
+		for i = 1, shopLayouts[usedLayout][1] do			-- counts through 1, 2, 3, 4....
+			if shopLayouts[usedLayout][i + 1] ~= nil then	-- go through all the shop item positions
 				-- find items which are in the place of the slots
 				for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
 					if usedPriceTable[i] ~= -99 then
@@ -2009,25 +2024,20 @@ function GhostShop:onGhostSignUpdate(effect)
 		local variant = math.random(100)
 		if variant <= 5 then 		-- 10% chance meme variants
 			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_guppy.png")
-			sprite:ReplaceSpritesheet(2, "gfx/effects/effect_ghoststoresign_guppy.png")
 			sprite:LoadGraphics()
 		elseif variant <= 15 then	
 			if usedLayout == 1 then		-- unlucky layout
 				sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_angry.png")
-				sprite:ReplaceSpritesheet(2, "gfx/effects/effect_ghoststoresign_angry.png")
 				sprite:LoadGraphics()
 			else
 				sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_lost.png")
-				sprite:ReplaceSpritesheet(2, "gfx/effects/effect_ghoststoresign_lost.png")
 				sprite:LoadGraphics()
 			end
 		elseif variant <= 15 then	-- 10% chance rare variants
 			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_lost.png")
-			sprite:ReplaceSpritesheet(2, "gfx/effects/effect_ghoststoresign_lost.png")
 			sprite:LoadGraphics()
 		elseif variant <= 48 then	-- 33% chance for other variants
 			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_afraid.png")
-			sprite:ReplaceSpritesheet(2, "gfx/effects/effect_ghoststoresign_afraid.png")
 			sprite:LoadGraphics()
 		end
 		-- make it appear
@@ -2045,16 +2055,18 @@ function GhostShop:onCoopGhostUpdate(ghost)
 	local data = ghost:GetData()
 	local sound = SFXManager()
 
-	-- update the look the familiar should have (mod compatibility only)
+	-- ----------------------------------------------------------------- --
+	-- update the look the familiar should have (mod compatibility only) -- 
 	if data.IdentityUpdate == nil then
 
 		data.IdentityUpdate = true
 	
 		if data.Identity == 4 
 		or data.Identity == 25 then	-- blue color / ??? and T.???
-			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_coop_ghost_blue.png")
-			sprite:ReplaceSpritesheet(1, "gfx/effects/effect_coop_ghost_blue.png")
-			sprite:LoadGraphics()
+			ghostShop_ReplaceGhost(ghost, "gfx/effects/effect_coop_ghost_blue.png", "gfx/effects/effect_coop_ghost_blue.png") 	-- ghostShop_ReplaceGhost(entity, path1, path2)
+			-- sprite:ReplaceSpritesheet(0, "gfx/effects/effect_coop_ghost_blue.png")
+			-- sprite:ReplaceSpritesheet(1, "gfx/effects/effect_coop_ghost_blue.png")
+			-- sprite:LoadGraphics()
 		elseif data.Identity == 7
 		or data.Identity == 13
 		or data.Identity == 28
@@ -2074,6 +2086,8 @@ function GhostShop:onCoopGhostUpdate(ghost)
 		end
 	end
 
+	-- -------------------------------------------------- --
+	-- give the coop ghost basic movement via pathfinding --
 	if ghost.State == 0 then
 		local shouldStop = (math.random(10)) + 1
 		if ghost:IsFrame(math.ceil(8/0.5), 0) then
@@ -2091,6 +2105,8 @@ function GhostShop:onCoopGhostUpdate(ghost)
 		end
 	end
 
+	-- --------------------------------------------------- --
+	-- kill the coop ghost and spawn an item from it's pool --
 	if data.IsDying == true
 	and not sprite:IsPlaying("Death") then
 		sprite:Play("Death")
@@ -2100,7 +2116,8 @@ function GhostShop:onCoopGhostUpdate(ghost)
 		ghost.EntityCollisionClass = EntityCollisionClass.ENTCOLL_NONE	-- it's shouldn't collide with anyhting once it's dead
 		ghost.Velocity = Vector(0,0)
 
-		if data.itemSpawned == nil then
+		if data.itemSpawned == nil 
+		and storedCoopItems[ghostTable][2] ~= nil then		-- needs a tleast an item to spawn 
 
 			-- get the rng
 			local ghostRNG = RNG()
@@ -2147,16 +2164,8 @@ function GhostShop:onCoopGhostUpdate(ghost)
 				local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, poolRNG, ghost.Position, Vector(0,0), nil) -- :ToPickup()
 			end
 
-			-- block the coop table so that it can't be spawned again
+			-- block the coop table so that the ghost can't be spawned again
 			storedCoopItems[ghostTable][1] = -1
-			-- do the same for the coop table
-			if ghostTable == 1 then
-				GameState.backUpCoopItems1[1] = -1
-			elseif ghostTable == 2 then
-				GameState.backUpCoopItems2[1] = -1
-			elseif ghostTable == 3 then
-				GameState.backUpCoopItems3[1] = -1
-			end
 
 			-- prevent that more than one item spawns
 			data.itemSpawned = true
@@ -2175,6 +2184,7 @@ GhostShop:AddCallback(ModCallbacks.MC_NPC_UPDATE, GhostShop.onCoopGhostUpdate, G
 function GhostShop:onCoopGhostDeath(target, dmg, flag, souce, countdown)
 	local sprite = target:GetSprite()
 	local data = target:GetData()
+	-- basically checks if the ghost got hit by a explosion. However to trigger the custom code we have kill it off in the 'MC_NPC_UPDATE' callback above
 	if flag & DamageFlag.DAMAGE_EXPLOSION > 0  then
 		-- It's dead ._.
 		if data.IsDying == nil then
@@ -2187,13 +2197,17 @@ function GhostShop:onCoopGhostDeath(target, dmg, flag, souce, countdown)
 end
 GhostShop:AddCallback(ModCallbacks.MC_ENTITY_TAKE_DMG, GhostShop.onCoopGhostDeath, GhostShopMod.ENTITY_GS_COOP_GHOST)
 
+-- ----------- --
+-- save & exit --
+-- ----------- --
+
 function GhostShop:onExit(_)
 	local level = game:GetLevel()
 	local stage = level:GetStage()
 	local stageType = level:GetStageType()
 
-	-- ---------------------- --
-	-- reset Gamestate tables --
+	-- -------------------------------------------------------- --
+	-- reset Gamestate tables which track the current held items--
 	GameState.savedItems1 = {}
 	GameState.savedItems2 = {}
 	GameState.savedItems3 = {}
@@ -2206,8 +2220,12 @@ function GhostShop:onExit(_)
 
 	-- ---------------------- --
 	-- update Gamestate tables --
+	-- win & death bonus
+	GameState.deathBonus = deathBonus
+	GameState.winBonus = winBonus
+
 	-- seenItems
-	GameState.seenItems = seenCollectibles		-- then refill the table with the seen items in the current run
+	GameState.seenItems = seenCollectibles		-- refill the table with the seen items in the current run
 	
 	-- the different shopping lists
 	GameState.shoppingList = shoppingList
@@ -2241,13 +2259,24 @@ function GhostShop:onExit(_)
 	GameState.preFlippedItems = preFlipped		
 	GameState.postFlippedItems = postFlipped
 
+	-- update and check if one of the coop ghost died and spanwed it's item. -1 is here the indicator for that and get's saved on the first position of the table
+	for g = 1,3 do
+		if storedCoopItems[g][1] == -1 then
+			GameState.backUpCoopItems1[1] = -1
+		elseif storedCoopItems[g][1] == -1 then
+			GameState.backUpCoopItems2[1] = -1
+		elseif storedCoopItems[g][1] == -1 then
+			GameState.backUpCoopItems3[1] = -1
+		end
+	end
+
 	-- ------------------------------------------------------------------- --
-	-- update the Gamestate tables with the items the player currently has --
+	-- update the Gamestate tables with the items the player(s) currently has --
 	for i = 0, (game:GetNumPlayers() - 1) do
 		local player = Isaac.GetPlayer(i)
 		local playerData = player:GetData()
 
-		-- store the character id from coop players for the lil coop ghosts (mod compatibility only). This allows to know which characters were used in the last run
+		-- store the character id from coop players for the lil coop ghosts. This allows to know which characters were used in the last run
 		if i == 1 then		-- player 2
 			table.insert(GameState.coopItems1, 1, player:GetPlayerType())
 		elseif i == 2 then	-- player 3
