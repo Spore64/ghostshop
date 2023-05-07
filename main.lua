@@ -16,6 +16,7 @@ GhostShopMod.ENTITY_GS_COOP_GHOST = Isaac.GetEntityTypeByName("GS Coop Ghost")
 -- ghot signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
 local numLittleGhosts = 0	-- keeps track on how many possessed ghost signs should be spawned by reentering the shop
 local SpawnGhostSigns = false 	-- 'true' if shop signs should be spawned
+-- local removedSign = nil		-- true if a player bought an item in the ghost shop
 
 local currentItemPosition = {}	
 local curItemQuality = {}
@@ -407,7 +408,7 @@ local function ghostShop_FlipLayouts(rng, id, roll)	-- function used for the Fli
 	-- check if a shop sign has to be spawn instead of an item
 	if usedFlipTable == -1 then	-- it's a shop sign!
 		if id == -1 then	-- no item id was passed into this function. Instead it has the value used for shop sign.
-			local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][roll + 1], Vector(0,0), nil):ToEffect()
+			local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil):ToEffect()
 			local poof = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.POOF01, 0, shopSign.Position, Vector(0,0),shopSign):ToEffect()
 			-- add the flip effect
 			local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, Vector((shopSign.Position.X) + 12, (shopSign.Position.Y) - 17), Vector(0,0),shopSign):ToEffect()
@@ -415,7 +416,7 @@ local function ghostShop_FlipLayouts(rng, id, roll)	-- function used for the Fli
 
 		else			-- id is the item id from an actual item!
 			id:Remove()
-			local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][roll + 1], Vector(0,0), nil):ToEffect()
+			local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil):ToEffect()
 			local poof = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.POOF01, 0, shopSign.Position, Vector(0,0),shopSign):ToEffect()
 			-- add the flip effect
 			local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, Vector((shopSign.Position.X) + 12, (shopSign.Position.Y) - 17), Vector(0,0),shopSign):ToEffect()
@@ -437,7 +438,7 @@ local function ghostShop_FlipLayouts(rng, id, roll)	-- function used for the Fli
 		
 		if id == -1 then	-- no item id was passed into this function. Instead it has the value used for shop sign.
 			-- that means we don't have an item to morph and have to spawn the one from the table
-			local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, usedFlipTable, shopLayouts[GameState.backUpLayout][roll + 1], Vector(0,0), nil):ToPickup()
+			local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, usedFlipTable, shopLayouts[usedLayout][roll + 1], Vector(0,0), nil):ToPickup()
 			-- add the flip effect
 			local flipEffect = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.FLIP_EFFECT, 0, Vector((shopItem.Position.X) + 12, (shopItem.Position.Y) - 18), Vector(0,0),shopItem):ToEffect()
 			flipEffect:GetSprite():Play("Sign", true)
@@ -938,6 +939,7 @@ function GhostShop:onShopItemPickup()
 	if roomType == RoomType.ROOM_SHOP	
 	and room:IsMirrorWorld() == true then
 
+		-- ------------------------------------------ -- 
 		-- Flip synergy
 		if hasUsedFlip == true then
 			-- get the rng
@@ -950,9 +952,8 @@ function GhostShop:onShopItemPickup()
 				usedFlipTable = postFlipped
 				usedPriceTable = postPrice
 				usedRestockTable = postAddRestockPrice
-				-- firstFlipp = true 
 
-				for i = 1, shopLayouts[GameState.backUpLayout][1] do	-- go through the amount of slots which should be there
+				for i = 1, shopLayouts[usedLayout][1] do	-- go through the amount of slots which should be there
 					if preFlipped[i] ~= nil then			-- only do that if already items for the 'preFlipped'-layout are chosen
 						local quality = 0
 
@@ -990,8 +991,8 @@ function GhostShop:onShopItemPickup()
 					end
 				end
 			end
-			for i = 1, shopLayouts[GameState.backUpLayout][1] do	-- go through the amount of slots which should be there
-				if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then
+			for i = 1, shopLayouts[usedLayout][1] do	-- go through the amount of slots which should be there
+				if shopLayouts[usedLayout][i + 1] ~= nil then
 					local itemFound = false		-- keeps track if the next loop found an shop item in it's place
 					-- find items which are in the place of the slots
 					for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
@@ -1037,8 +1038,8 @@ function GhostShop:onShopItemPickup()
 				usedShopSignTable = storeSignsFlipped
 			end
 
-			for i = 1, shopLayouts[GameState.backUpLayout][1] do
-				if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then
+			for i = 1, shopLayouts[usedLayout][1] do
+				if shopLayouts[usedLayout][i + 1] ~= nil then
 					-- find items which are in the place of the slots
 					for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
 						-- make sure it's a Shop Item
@@ -1059,6 +1060,30 @@ function GhostShop:onShopItemPickup()
 			dontRestock = false
 		end
 
+		-- check if one of the players used the Mystery Gift item
+		if hasUsedMyGi[2] ~= nil then
+			-- we look for an item on the position stored in 'hasUsedMyGi[2]'
+			for _, entity in pairs(Isaac.FindInRadius(hasUsedMyGi[2], 2, EntityPartition.PICKUP)) do
+				if entity:ToPickup().Variant == PickupVariant.PICKUP_COLLECTIBLE then
+					-- change the item
+					local quality = 0
+
+					-- get the rng
+					local ghostRNG = RNG()
+					ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
+
+					-- choose a quality
+					quality = ghostRNG:RandomInt(5) + 1
+
+					-- chose a new item to which the old one gets morphed (not rerolled!) to
+					ghostShop_ChoseNewItem(ghostRNG, quality, 1, entity, 0, 0, 0, 0, 0)		
+					-- ghostShop_ChoseNewItem(rng, quality, roll placeholder, entity, spawnSign = false , addPrice = false, restock = false, reroll = false, spawnItem = false)
+				end
+			end
+			-- reset Mystery Gift
+			hasUsedMyGi = {false}
+		end
+
 		-- if the player restarts/reloads the game make sure that shop signs are spawned in the empty shop slots
 		local itemPosition = {}
 		if SpawnGhostSigns == true 
@@ -1066,10 +1091,10 @@ function GhostShop:onShopItemPickup()
 		and GhostShopVisit == true 
 		and NormalShopVisit == false then
 			local player = Isaac.GetPlayer(0)
-			for i = 1, shopLayouts[GameState.backUpLayout][1] do
-				if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then
+			for i = 1, shopLayouts[usedLayout][1] do
+				if shopLayouts[usedLayout][i + 1] ~= nil then
 					local removed = false
-					local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][i + 1], Vector(0,0), nil):ToEffect()
+					local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][i + 1], Vector(0,0), nil):ToEffect()
 					for _, items in pairs(Isaac.FindInRadius(shopSign.Position, 16, EntityPartition.PICKUP)) do
 						if items:ToPickup():IsShopItem() then
 							if items.Variant == PickupVariant.PICKUP_COLLECTIBLE then
@@ -1094,16 +1119,18 @@ function GhostShop:onShopItemPickup()
 			SpawnGhostSigns = false
 		end
 
+		-- ------------------------------------------------ --
+		-- stuff the player character has to be checked for -- 
 		for i = 0, (game:GetNumPlayers() - 1) do
 			local player = Isaac.GetPlayer(i)
 			local playerData = player:GetData()
-			local itemConfig = Isaac.GetItemConfig()
 
 			-- once an item is found that the player could have touched we check if an item is still in the radius of a shop sign.. if so the player didn't bought it
-			if currentItemPosition[1] ~= nil 	-- player walked over a shop item
+			if currentItemPosition[1] ~= nil 	-- player walked over a shop item and saved the position
 			and player:IsHoldingItem() then		-- is holding something up
 				local removed = false
 				local radius = 16	-- the radius in which the loop search for pickups
+
 				-- spawn the shop sign on the item position
 				local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, currentItemPosition[1], Vector(0,0), nil):ToEffect()
 
@@ -1125,8 +1152,6 @@ function GhostShop:onShopItemPickup()
 					end
 				end
 				if removed == false then		-- there's no item anymore
-					local updateFlipTable = true
-					local shoppingTable = {}
 
 					-- but first it has to be checked which layout table should be used at the shop sign position has to be saved in the according table
 					if flipped == 1 then		-- it's the normal Layout
@@ -1139,82 +1164,42 @@ function GhostShop:onShopItemPickup()
 						usedPriceTable = postPrice
 					end
 
-					-- in order for the shopping list to work we need to make an extra list for the items in the usedFlipTable
-					if usedFlipTable[1] ~= nil then			-- first make sure the table isn't empty
-						for _, entity in ipairs(usedFlipTable) do	-- go through each entry of the table
-							if entity ~= -1 then		-- the entity isn't a shop sign, so it is an item
-								table.insert(shoppingTable, entity)
-							end
-						end
-					end
-
 					-- now we need to update the pre-/postflipped table to make sure Flip doesn't spawn old items
 					-- first go through all layout positions
-					for i = 1, shopLayouts[GameState.backUpLayout][1] do
-						if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then
-							for _, items in pairs(Isaac.FindInRadius(shopLayouts[GameState.backUpLayout][i + 1], 4, EntityPartition.PICKUP)) do
-								if items:ToPickup():IsShopItem() then
-									if items.Variant == PickupVariant.PICKUP_COLLECTIBLE then	-- there's still an item there
-										-- then check if the item which is still on this position matches with one from the pre-/postflipped table
-										updateFlipTable = false		-- there's still an item on this  position of the table so we don't need to update the flip table on this position
-										
-										if items.SubType == usedFlipTable[i] then	-- get's the item which are left
-											
-											-- remove the the left over items from the shoppingTable
-											if shoppingTable[1] ~= nil then			-- first make sure the table isn't empty
-
-												for position, item in ipairs(shoppingTable) do	-- go through each entry of the table
-													if item == items.SubType then		-- the entity isn't a shop sign, so it is an item
-														table.remove(shoppingTable,position)
-													end
-												end
-											end
+					for i = 1, shopLayouts[usedLayout][1] do
+						if shopLayouts[usedLayout][i + 1] ~= nil then
+							if usedFlipTable[i] ~= -1 then
+								local updateFlipTable = true
+								for _, items in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 6, EntityPartition.PICKUP)) do
+									if items:ToPickup():IsShopItem() then
+										if items.Variant == PickupVariant.PICKUP_COLLECTIBLE then	-- there's still an item there
+											-- then check if the item which is still on this position matches with one from the pre-/postflipped table
+											updateFlipTable = false		-- there's still an item on this position of the table so we don't need to update the flip table on this position
 										end
-									end
+									end	
 								end
-							end
-							-- check if the pre-/postflipped table should be updated on this position
-							if updateFlipTable == true then		-- if it is still true, then no item has been found in the loop above
-								
-								-- update the flipped table
-								usedFlipTable[i] = -1		-- updated it so that there's now the value of a shop sign in the table
-								-- add a placeholder price on this postion
-								usedPriceTable[i] = -99
-							end
-						end
-					end
-					-- then we check if the shoppingTable still has an item left (which it should)
-					if shoppingTable[2] ~= nil then		-- first make sure the table isn't empty	
-						for position, item in ipairs(shoppingTable) do	-- go through each entry of the table
-							if player:IsCoopGhost() == false
-							and player:HasCollectible(item) then		-- the entity isn't a shop sign, so it is an item
-								table.remove(shoppingTable,position)
-							end
-						end
-					end
-					if shoppingTable[1] ~= nil then		-- first make sure the table isn't empty	
-						-- insert the leftover item in the shoppingList table
-						for j, backupItem in ipairs(shoppingTable) do	-- go through each entry of the table
-							if shoppingList[1] ~= nil then
-								for k, item in ipairs(shoppingList) do
-									if backupItem == item then
-										table.remove(shoppingTable,position)
-									end
+								-- check if the pre-/postflipped table should be updated on this position
+								if updateFlipTable == true then		-- if it is still true, then no item has been found in the loop above
+
+									-- insert the item id in the shopping list
+									table.insert(shoppingList,1,usedFlipTable[i])
+
+									-- update the flipped table
+									usedFlipTable[i] = -1				-- updated it so that there's now the value of a shop sign in the table
+									-- add a placeholder price on this postion
+									usedPriceTable[i] = -99
 								end
 							end
 						end
-						if shoppingTable[1] ~= nil then
-							table.insert(shoppingList,1,shoppingTable[1]) 
-						end
 					end
-				end
-				-- give the sign a chance to be possessed by a little ghost
-				if shopSign:GetData().IsPossessed == nil then
-					local roll = math.random(1,8)	-- only has a 12,5% chance to be possessed
-					if roll == 1 then	-- a possessed sign should be spawned
-						shopSign:GetData().IsPossessed = true	-- this is now the home of a little ghost
-						numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
-						-- needs a set up for a different animation
+					-- give the sign a chance to be possessed by a little ghost
+					if shopSign:GetData().IsPossessed == nil then
+						local roll = math.random(1,8)			-- only has a 12,5% chance to be possessed
+						if roll == 1 then				-- a possessed sign should be spawned
+							shopSign:GetData().IsPossessed = true	-- this is now the home of a little ghost
+							numLittleGhosts = numLittleGhosts + 1	-- adjust the number of little ghost which should be spawned on revisting the shop
+							-- needs a set up for a different animation
+						end
 					end
 				end
 				currentItemPosition = {}
@@ -1242,16 +1227,16 @@ function GhostShop:onShopItemPickup()
 					end
 
 					-- now that there's an empty slot we check where that empty slot is
-					for i = 1, shopLayouts[GameState.backUpLayout][1] do
+					for i = 1, shopLayouts[usedLayout][1] do
 						local noEmptySlot = false
-						if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then 	-- it's a valid slot
+						if shopLayouts[usedLayout][i + 1] ~= nil then 	-- it's a valid slot
 							-- print(usedFlipTable[i])
 							if usedFlipTable[i] == -1 then		-- the slot contains a shop/store sign
 								table.insert(restockTable,-1)	
 								noEmptySlot = true
 							else
 								-- we look if we can find an item in this slot. Originally it should have had one
-								for _, entities in pairs(Isaac.FindInRadius(shopLayouts[GameState.backUpLayout][i + 1], 16, EntityPartition.PICKUP)) do
+								for _, entities in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 16, EntityPartition.PICKUP)) do
 									if entities:ToPickup():IsShopItem() then
 										table.insert(restockTable,1)	
 										noEmptySlot = true
@@ -1268,7 +1253,7 @@ function GhostShop:onShopItemPickup()
 					if restockTable[1] ~= nil then
 						local quality = 0		-- keeps track of the determined quality of the items
 						-- then we go through the restockTable and find the empty(2) slot again
-						for j = 1, shopLayouts[GameState.backUpLayout][1] do
+						for j = 1, shopLayouts[usedLayout][1] do
 
 							if restockTable[j] == 2 	-- it's empty
 							and usedFlipTable[j] ~= nil then
@@ -1325,6 +1310,7 @@ function GhostShop:onShopItemPickup()
 					end
 				end
 			end
+
 			-- Glitched Crown synergy
 			if player:IsCoopGhost() == false then
 
@@ -1341,8 +1327,8 @@ function GhostShop:onShopItemPickup()
 					end
 
 					-- apply the Steam Sale effect to the shop items
-					for i = 1, shopLayouts[GameState.backUpLayout][1] do			-- counts through 1, 2, 3, 4....
-						if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then	-- go through all the shop item positions
+					for i = 1, shopLayouts[usedLayout][1] do			-- counts through 1, 2, 3, 4....
+						if shopLayouts[usedLayout][i + 1] ~= nil then	-- go through all the shop item positions
 							-- find items which are in the place of the slots
 							for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
 								-- make sure it's a Shop Item
@@ -1378,8 +1364,8 @@ function GhostShop:onShopItemPickup()
 					end
 
 					-- apply the Steam Sale effect to the shop items
-					for i = 1, shopLayouts[GameState.backUpLayout][1] do			-- counts through 1, 2, 3, 4....
-						if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then	-- go through all the shop item positions
+					for i = 1, shopLayouts[usedLayout][1] do			-- counts through 1, 2, 3, 4....
+						if shopLayouts[usedLayout][i + 1] ~= nil then	-- go through all the shop item positions
 							-- find items which are in the place of the slots
 							for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
 								-- make sure it's a Shop Item
@@ -1409,8 +1395,8 @@ function GhostShop:onShopItemPickup()
 			end
 
 			-- reapply the base price to the shop items
-			for i = 1, shopLayouts[GameState.backUpLayout][1] do			-- counts through 1, 2, 3, 4....
-				if shopLayouts[GameState.backUpLayout][i + 1] ~= nil then	-- go through all the shop item positions
+			for i = 1, shopLayouts[usedLayout][1] do			-- counts through 1, 2, 3, 4....
+				if shopLayouts[usedLayout][i + 1] ~= nil then	-- go through all the shop item positions
 					-- find items which are in the place of the slots
 					for _, entity in pairs(Isaac.FindInRadius(shopLayouts[usedLayout][i + 1], 4, EntityPartition.PICKUP)) do
 						-- make sure it's a Shop Item
@@ -1424,30 +1410,10 @@ function GhostShop:onShopItemPickup()
 				end
 			end
 		end
-		-- check if one of the players used the Mystery Gift item
-		if hasUsedMyGi[2] ~= nil then
-			-- we look for an item on the position stored in 'hasUsedMyGi[2]'
-			for _, entity in pairs(Isaac.FindInRadius(hasUsedMyGi[2], 2, EntityPartition.PICKUP)) do
-				if entity:ToPickup().Variant == PickupVariant.PICKUP_COLLECTIBLE then
-					-- change the item
-					local quality = 0
-
-					-- get the rng
-					local ghostRNG = RNG()
-					ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
-
-					-- choose a quality
-					quality = ghostRNG:RandomInt(5) + 1
-
-					-- chose a new item to which the old one gets morphed (not rerolled!) to
-					ghostShop_ChoseNewItem(ghostRNG, quality, 1, entity, 0, 0, 0, 0, 0)		
-					-- ghostShop_ChoseNewItem(rng, quality, roll placeholder, entity, spawnSign = false , addPrice = false, restock = false, reroll = false, spawnItem = false)
-				end
-			end
-			-- reset Mystery Gift
-			hasUsedMyGi = {false}
-		end
 	end
+
+	-- ------------------------------------------ --
+	-- other stuff on the other side of the floor -- 
 	if openNomralShop == true		-- we found a shop we would like to open
 	and room:IsClear() then			-- And no enemies are in the room anymore 
 		
@@ -1485,6 +1451,9 @@ function GhostShop:onShopItemPickup()
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_UPDATE, GhostShop.onShopItemPickup)
 
+-- ----------------- --
+-- shop layout spawn --
+-- ----------------- --
 function GhostShop:onShopEnter()
 	local player = Isaac.GetPlayer(0)
 
@@ -1565,18 +1534,18 @@ function GhostShop:onShopEnter()
 					usedRestockTable = preAddRestockPrice
 
 					if hasUsedFMN == false then	-- used to check if the player has used the 'Forget Me Now' item. Prevents another set of items to be spawned
-						-- -------------------------------------------------------------------
+						-- ----------------------------------------------------------------- --
 
 						if shopLayouts[usedLayout][position + 1] ~= nil then	-- prevents a small bug from happpening. Somehow sometimes there's one more position than there should. Idk what causes this
 							-- chose the items for the preFlipped table	
 							ghostShop_ChoseNewItem(ghostRNG, quality, position, 0, 1, 1, 0, 0, 1)	
 							-- ghostShop_ChoseNewItem(rng, quality, roll, entity placeholder, spawnSign = true, addPrice = true, restock = false, reroll = false, spawnItem = true)
 						end
-						-- -------------------------------------------------------------------
+						-- ----------------------------------------------------------------- --
 					else	-- we have to spawn the existing layout
 						if shopLayouts[usedLayout][position + 1] ~= nil then
 							if preFlipped[position] == -1 then 	-- we need to spawn a shop sign
-								local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[GameState.backUpLayout][position + 1], Vector(0,0), nil):ToEffect()
+								local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][position + 1], Vector(0,0), nil):ToEffect()
 
 							elseif preFlipped[position] > 0 then				-- we need to spawn the item from that position
 								local shopItem = Isaac.Spawn(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, preFlipped[position], shopLayouts[usedLayout][position + 1], Vector(0,0), nil) -- :ToPickup()
@@ -1605,6 +1574,8 @@ function GhostShop:onShopEnter()
 				end
 				hasUsedFMN = false	-- reset the Forget Me Now use
 			end
+
+		-- spawn the shop signs once the player enters the shop again --
 		else
 			if room:IsMirrorWorld() == true
 			and GhostShopVisit == true 
@@ -1668,8 +1639,10 @@ function GhostShop:onShopEnter()
 		-- restock synergy
 		dontRestock = false
 	end
-	-- if the player visted the ghost shop make that the door of the normal shop opens. That should give player a clue that something changed
 
+	-- -------------------------------------------------------------------------------- --
+	-- if the player visted the ghost shop make that the door of the normal shop opens. --
+	-- That should give player a clue that something changed
 	if (stageType == StageType.STAGETYPE_REPENTANCE or stageType == StageType.STAGETYPE_REPENTANCE_B)
 	and stage == LevelStage.STAGE1_2
 	and room:IsMirrorWorld() ~= true
@@ -1706,6 +1679,10 @@ function GhostShop:onNewFloor(_)
 	if hasWon == false then
 		deathBonus = deathBonus + 1
 	end
+
+	-- ----------------------------------------------- --
+	-- prevent the shop from other floors to stay open --
+	openNomralShop = false
 
 	-- ------------------------------------------ --
 	-- temporary store the items the players have --
@@ -1826,10 +1803,7 @@ function GhostShop:onCollectibleSpawn(pickup)
 					if player:HasCollectible(CollectibleType.COLLECTIBLE_RESTOCK) then
 						hasRestock = true
 					end
-					-- if player:HasCollectible(CollectibleType.COLLECTIBLE_GLITCHED_CROWN)
-					-- or player:GetPlayerType() == 21 then
-					--	hasGlitCrown = true
-					-- end
+					-- glitched crown placeholder
 				end
 			end
 
@@ -2012,7 +1986,7 @@ function GhostShop:onGhostSignUpdate(effect)
 	local sprite = effect:GetSprite()
 	local data = effect:GetData()
 
-	if data.IsPossessed == true
+	if data.IsPossessed == true		-- check if the ghost is suppossed to show a little Polty
 	and data.ShouldAppear == nil then
 		for _, entitis in pairs(Isaac.FindInRadius(effect.Position, 75, EntityPartition.PLAYER)) do
 			data.ShouldAppear = true
@@ -2055,8 +2029,8 @@ function GhostShop:onCoopGhostUpdate(ghost)
 	local data = ghost:GetData()
 	local sound = SFXManager()
 
-	-- ----------------------------------------------------------------- --
-	-- update the look the familiar should have (mod compatibility only) -- 
+	-- ---------------------------------------- --
+	-- update the look the familiar should have -- 
 	if data.IdentityUpdate == nil then
 
 		data.IdentityUpdate = true
@@ -2200,7 +2174,6 @@ GhostShop:AddCallback(ModCallbacks.MC_ENTITY_TAKE_DMG, GhostShop.onCoopGhostDeat
 -- ----------- --
 -- save & exit --
 -- ----------- --
-
 function GhostShop:onExit(_)
 	local level = game:GetLevel()
 	local stage = level:GetStage()
@@ -2237,7 +2210,6 @@ function GhostShop:onExit(_)
 	GameState.postPrice = postPrice
 	GameState.preAddRestockPrice = preAddRestockPrice	
 	GameState.postAddRestockPrice = postAddRestockPrice
-
 
 	-- save which side we are currently flipped to. -2 is the indicator for the normal layout, -3 is the one for the flipped layout
 	if preFlipped[1] ~= nil then	-- we make sure the item were spawned in the ghost shop
