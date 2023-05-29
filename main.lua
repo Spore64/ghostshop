@@ -16,7 +16,6 @@ GhostShopMod.ENTITY_GS_COOP_GHOST = Isaac.GetEntityTypeByName("GS Coop Ghost")
 -- ghot signs are the home of little shop ghosts, however between entering and exiting the shop they might switch signs/places
 local numLittleGhosts = 0	-- keeps track on how many possessed ghost signs should be spawned by reentering the shop
 local SpawnGhostSigns = false 	-- 'true' if shop signs should be spawned
--- local removedSign = nil		-- true if a player bought an item in the ghost shop
 
 local currentItemPosition = {}	
 local curItemQuality = {}
@@ -84,33 +83,102 @@ local hasUsedD100 = false	-- separatly keeps track if the player has used the D1
 local hasUsedFlip = false	-- keeps track if a player used the Flip item
 local hasUsedFMN = false	-- keeps track if a player used Forget Me Now. 'true' will prevent other item to get added to the preflipped table
 local hasUsedMyGi = {false}	-- keeps track if a player used the Mystery Gift. hasUsedMyGi[1] == 'true' will trigger code in the 'MC_POST_PICKUP_INIT' callback to morph the newly spawned item
+local hasUsedFMN = false	-- keeps track if Forget Me Now was used 
+local hasSteamSale = false	-- keeps track if a player has a Steam Sale
+local hasGlitchedCrown = false
 
 local flipped = 1		-- keeps track if a player flipped the items and on which flipped site we are on currently 1 = normal 2 = flipped
 local preFlipped = {}		-- stores the items of the regular layout of the ghost shop
 local postFlipped = {}		-- stores the items of the version of layout of the ghost shop once the player uses the Flip item
-
-local preAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the pre flipped shop
-local postAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the post flipped shop
-
-local dontRestock = false
-local needsToRestock = false
+local preTemporary = {}		-- restores the preFlipped table after the players uses the Glowing Hourglass
 
 local usedFlipTable = nil	-- keeps track if Flip was used. (preFlipped) for the regular layout, (postFlipped) for the flipped layout
 local usedShopSignTable = nil	-- keeps track if Flip was used ..... ?
 local usedPriceTable = nil	-- keeps track if Flip was used. (prePrice) as the regular layout, (postPrice) as the flipped layout
 local usedRestockTable = nil	-- keeps track if Flip was used. (preAddRestockPrice) for the regular layout, (postAddRestockPrice) for the flipped layout
 
-local seenCollectibles = {}	-- keeps track of all the items spawned in in a run
+local dontRestock = false
+local needsToRestock = false
 
-local hasSteamSale = false	-- keeps track if a player has a Steam Sale
-local hasGlitchedCrown = false
-local hasUsedFMN = false	-- keeps track if Forget Me Now was used 
+local preAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the pre flipped shop
+local postAddRestockPrice = {}	-- keeps track of the amount of money which should be added on top of the normal price in the post flipped shop
+
+local seenCollectibles = {}	-- keeps track of all the items spawned in in a run
 
 local openNomralShop = false 	-- if the player visited the Ghost shop the other should be open. Only works in none hostile rooms
 local shopStayOpen = false	-- keeps track if the shop door has played the opening animation and should stay open now
 
 -- local spawnedCoopGhosts = 0	-- necessary?
 
+local function ghostShop_checkShoppingList()
+	shoppingList = GameState.shoppingList
+	backupListOne = GameState.backupShoppingListOne
+	backupListTwo = GameState.backupShoppingListTwo
+		
+	if shoppingList[1] ~= nil then			-- first make sure the table isn't empty
+		local decoyListOne = {}			-- stores item from the second one which match with the shoppingList
+		local decoyListTwo = {}	
+		local decoyListThree = {}		
+		local readdItems = false 
+			
+		if backupListOne[1] == nil 
+		and backupListTwo[1] == nil then	-- both tables are empty
+			backupListOne = shoppingList	-- since they don't contain any items all items from the shoppingList get inserted into the frist backip table
+
+		else	-- we split the items and insert them into the two backup tables
+			for j, item in ipairs(shoppingList) do	-- go through each entry of the table
+				local inSecondTable = false
+				local inFirstTable = false
+				-- for each entry of the shoppingList go through the items from the two backup shopping lists
+
+				if backupListTwo[1] ~= nil then
+					for k, backupItems in ipairs(backupListTwo) do
+						if backupItems == item then
+							-- add the item to the decoyListThree table
+							table.insert(decoyListThree,1,item)
+							-- marked the item id as being found
+							inSecondTable = true
+						end
+					end
+				end
+				if inSecondTable == false		-- item wasn't in the second backup table
+				and backupListOne[1] ~= nil then
+					for l, backupItems in ipairs(backupListOne) do
+						if backupItems == item then
+							-- add the item to the decoyListTwo table
+							table.insert(decoyListThree,1,item)
+							-- marked the item id as being found
+							inFirstTable = true
+						end
+					end
+				end
+				if inSecondTable == false
+				and inFirstTable == false then
+					-- add the item to the decoyListTwo table
+					table.insert(decoyListOne,1,item)
+				end
+			end
+			readdItems = true
+		end
+		if readdItems == true then
+			-- reinsert the decoy tables
+			backupListOne = decoyListTwo
+			backupListTwo = decoyListThree
+			-- insert the rest of the items into the first backup table
+			if decoyListOne[1] ~= nil then		 	-- make sure the table isn't empty
+				for m, item in ipairs(decoyListOne) do	-- go through the rest of the normal list
+					table.insert(backupListOne,1,item)
+				end
+			end
+		end
+	elseif shoppingList[1] == nil then	-- no items have been bought in the last run
+		-- reset both backup tables
+		backupListOne = {}
+		backupListTwo = {}
+	end
+	-- reset the shoppingList
+	shoppingList = {}
+end
 
 local function ghostShop_SpawnGhostSign(position, chance)
 	local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, position, Vector(0,0), nil):ToEffect()
@@ -192,7 +260,7 @@ local function ghostShop_ChoseNewItem(rng, quality, roll, item, spawnSign, addPr
 						table.insert(usedPriceTable, -99)
 					else
 						-- in the other case we have to check if this was done by a Mystery Gift use
-						if hasUsedMyGi[2] ~= nil then		-- 0 = false, in case of the mystery gift the item gets transformed into the poop, but reroll has tobe checked due the else function being triggered other ways as well
+						if hasUsedMyGi[3] ~= nil then		-- 0 = false, in case of the mystery gift the item gets transformed into the poop, but reroll has tobe checked due the else function being triggered other ways as well
 							item:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, CollectibleType.COLLECTIBLE_POOP, false)
 						end
 					end
@@ -358,7 +426,7 @@ local function ghostShop_ChoseNewItem(rng, quality, roll, item, spawnSign, addPr
 				item:ToPickup().Price = shopPrice
 			end
 
-		elseif hasUsedMyGi[2] ~= nil then
+		elseif hasUsedMyGi[3] ~= nil then
 			-- morph the item to an item from the new quality table
 			item:ToPickup():Morph(EntityType.ENTITY_PICKUP, PickupVariant.PICKUP_COLLECTIBLE, chosenItem, false)
 
@@ -477,6 +545,7 @@ local function ghostShop_SpawnCoopGhost(rng)
 		if entity.Type == EntityType.ENTITY_SHOPKEEPER then
 			-- insert the shopkeeper position into it's table. These will be the spawing points of the coop ghosts
 			table.insert(shopKeeperPositions, entity.Position)
+			print(shopKeeperPositions[1])
 		end
 	end
 	-- check if at least one shopkeepers is in the room	
@@ -486,17 +555,17 @@ local function ghostShop_SpawnCoopGhost(rng)
 			if storedCoopItems[k][2] ~= nil then	-- the second place (and beyond) in the table stores the item the coop ghost can spawn.
 				-- the first place stores the player Id also the identity of the coop ghost (for mod compatibility only)
 				if storedCoopItems[k][1] ~= -1 then 	-- not an invalid character
-					local curPositon = nil		-- stores the position the coop ghost will spawn
+					local curPosition = nil		-- stores the position the coop ghost will spawn
 
 					-- select a position
 					if shopKeeperPositions[2] ~= nil then	-- more than one position is available
 						local ghostPosition = rng:RandomInt(#shopKeeperPositions) + 1
-						curPositon = decoyTable[ghostPosition]
+						curPosition = shopKeeperPositions[ghostPosition]
 					else
-						curPositon = shopKeeperPositions[1]
+						curPosition = shopKeeperPositions[1]
 					end
 
-					local coopGhosts = Isaac.Spawn(GhostShopMod.ENTITY_GS_COOP_GHOST, 0, 0, curPositon, Vector(0,0), nil):ToNPC()
+					local coopGhosts = Isaac.Spawn(GhostShopMod.ENTITY_GS_COOP_GHOST, 0, 0, curPosition, Vector(0,0), nil):ToNPC()
 					-- determine to which table the ghost belongs to
 					if coopGhosts:GetData().HasTable == nil then
 						coopGhosts:GetData().HasTable = k
@@ -529,7 +598,7 @@ local function ghostShop_ReplaceGhost(entity, pathOne, pathTwo)
 end
 
 local function ghostShop_ItemBlacklist(itemID)
-	if itemID ~= 43		-- doesn't exist
+	if itemID ~= 43			-- doesn't exist
 	and itemID ~= 59		-- doesn't exist
 	and itemID ~= 61		-- doesn't exist
 	and itemID ~= 235		-- doesn't exist
@@ -542,14 +611,14 @@ local function ghostShop_ItemBlacklist(itemID)
 	and itemID ~= 551		-- Broken Shovel 2
 	and itemID ~= 552		-- Broken Shovel
 	and itemID ~= 626		-- Knife Piece 1
-	and itemID ~= 668 then	-- Dad's Note 
+	and itemID ~= 668 then		-- Dad's Note 
 		return true
 	else
 		return false
 	end
 end
 
-local function ghostShop_SaveHeldItems(itemID)
+local function ghostShop_SaveHeldItems(itemID, i)
 	local itemConfig = Isaac.GetItemConfig()
 
 	-- first check which quality the item has
@@ -641,11 +710,10 @@ function GhostShop:onNewStart(bool)
 	-- print("Game Start")
 	
 	if bool == false then		-- the start of a complete new game/run
-		deathBonus = GameState.deathBonus		
-		winBonus = GameState.winBonus			
-		luckyBonus = 0					-- depends which layout will be used in the end
-
-		-- create a back up table. This way the json table can be updated on the fly once the player loses or closes the game
+		
+		-- create a backup table. What this basically does is, it saves the items from the last run to be used in the current run [...]
+		-- Should the player exit (and continue) the run then the last runs items are still saved while the main table could still [...]
+		-- be updated in case the player chooses to start a new run (This way the json table can be updated on the fly)
 		GameState.backupItems1 = GameState.savedItems1
 		GameState.backupItems2 = GameState.savedItems2
 		GameState.backupItems3 = GameState.savedItems3
@@ -672,13 +740,17 @@ function GhostShop:onNewStart(bool)
 		NormalShopVisit = false
 		GhostShopVisit = false
 
-		-- choose the new layout
+		-- ----------------------------------------------- -- 
+		-- choose the new layout at the start of a new run --
+		deathBonus = GameState.deathBonus		-- set up the bonuses
+		winBonus = GameState.winBonus			
+		luckyBonus = 0					-- depends on which layout will be used in the end
+
 		-- get the rng
 		local ghostRNG = RNG()
 		ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
 
-		-- at the start choose which layout is going to be used for the run
-		-- currently not mod friendly
+		-- choose which layout is going to be used (currently not mod friendly)
 		local layoutRNG = (ghostRNG:RandomInt(100) + 1)
 		if layoutRNG <= 5 then		-- unlucky layout
 			usedLayout = 1
@@ -692,12 +764,10 @@ function GhostShop:onNewStart(bool)
 			usedLayout = 5
 			luckyBonus = 4
 		end
-		-- save the itemQuality table for later
-		GameState.backUpLayout = usedLayout
 		
-		-- reset the quality table
+		-- first reset the quality table
 		itemQuality = {}
-		-- get the quality of the items which will be available 
+		-- then get the quality of the items which will be available,
 		-- but first get the slot which has always a quality 4 or lower item
 		local maxQuality = false
 		fixedQuality = ghostRNG:RandomInt(shopLayouts[usedLayout][1]) + 1	-- position depends on the set num of items set on the 1st position of the choosen layout
@@ -737,13 +807,34 @@ function GhostShop:onNewStart(bool)
 				itemQuality[i] = 5
 			end
 		end
-		-- save the itemQuality table for later
-		GameState.backUpQuality = itemQuality
-		-- now reset the bonus since they don't have a use anymore
-		GameState.deathBonus = 0
+
+		-- -------------------------------------------------- --
+		-- keep track of the items the player bought last run -- 
+		-- from the other two shopping table 
+		ghostShop_checkShoppingList()
+
+		-- ----------------------------- --
+		-- reset the gamestate variables --
+		GameState.deathBonus = 0		
 		GameState.winBonus = 0
+		GameState.preFlippedItems = {}		
+		GameState.postFlippedItems = {}
+		GameState.prePrice = {}		
+		GameState.postPrice = {}
+		GameState.preAddRestockPrice = {}		
+		GameState.postAddRestockPrice = {}
+		GameState.seenItems = {}
+
+		-- -------------------------- --
+		-- reset the normal variables --
 		deathBonus = 0
 		winBonus = 0
+		flipped = 1
+		preFlipped = {}
+		postFlipped = {}
+		prePrice = {}
+		postPrice = {}
+		seenCollectibles = {}
 
 		-- reset the store sign position table
 		storeSigns = {}
@@ -752,107 +843,27 @@ function GhostShop:onNewStart(bool)
 		-- reset the restock synergy
 		preAddRestockPrice = {}
 		postAddRestockPrice = {}
-
 		for i = 1, shopLayouts[usedLayout][1] do 
 			preAddRestockPrice[i] = 0
 			postAddRestockPrice[i] = 0
 		end
 
-		-- keep track of the items the player bought last run
-		shoppingList = GameState.shoppingList
-		backupListOne = GameState.backupShoppingListOne
-		backupListTwo = GameState.backupShoppingListTwo
-		-- at the beginning of a new run the shoppingList (the items you bought in your last run have to be matched with the items ...
-		-- from the other two shopping table 
-		
-		if shoppingList[1] ~= nil then			-- first make sure the table isn't empty
-			local decoyListOne = {}			-- stores item from the second one which match with the shoppingList
-			local decoyListTwo = {}	
-			local decoyListThree = {}		
-			local readdItems = false 
-			
-			if backupListOne[1] == nil 
-			and backupListTwo[1] == nil then	-- both tables are empty
-				backupListOne = shoppingList	-- since they don't contain any items all items from the shoppingList get inserted into the frist backip table
+		hasWon = false
+		openNomralShop = false
+		shopStayOpen = false
 
-			else	-- we split the items and insert them into the two backup tables
-				for j, item in ipairs(shoppingList) do	-- go through each entry of the table
-					local inSecondTable = false
-					local inFirstTable = false
-					-- for each entry of the shoppingList go through the items from the two backup shopping lists
-
-					if backupListTwo[1] ~= nil then
-						for k, backupItems in ipairs(backupListTwo) do
-							if backupItems == item then
-								-- add the item to the decoyListThree table
-								table.insert(decoyListThree,1,item)
-								-- marked the item id as being found
-								inSecondTable = true
-							end
-						end
-					end
-					if inSecondTable == false		-- item wasn't in the second backup table
-					and backupListOne[1] ~= nil then
-						for l, backupItems in ipairs(backupListOne) do
-							if backupItems == item then
-								-- add the item to the decoyListTwo table
-								table.insert(decoyListThree,1,item)
-								-- marked the item id as being found
-								inFirstTable = true
-							end
-						end
-					end
-					if inSecondTable == false
-					and inFirstTable == false then
-						-- add the item to the decoyListTwo table
-						table.insert(decoyListOne,1,item)
-					end
-				end
-				readdItems = true
-			end
-			if readdItems == true then
-				-- reinsert the decoy tables
-				backupListOne = decoyListTwo
-				backupListTwo = decoyListThree
-				-- insert the rest of the items into the first backup table
-				if decoyListOne[1] ~= nil then		 	-- make sure the table isn't empty
-					for m, item in ipairs(decoyListOne) do	-- go through the rest of the normal list
-						table.insert(backupListOne,1,item)
-					end
-				end
-			end
-		elseif shoppingList[1] == nil then	-- no items have been bought in the last run
-			-- reset both backup tables
-			backupListOne = {}
-			backupListTwo = {}
-		end
-		shoppingList = {}
-
-		-- reset the synergie variables just in case
+		-- --------------------------- --
+		-- reset all synergy variables --
 		hasUsedDice = false	-- D6, Eternal D6, D Infinty and Dice Shard
 		hasUsedD100 = false	-- extra for D100
 		hasUsedFlip = false	-- Flip
 		flippedQuality = {}
-		GameState.preFlippedItems = {}		
-		GameState.postFlippedItems = {}
-		flipped = 1
-		preFlipped = {}
-		postFlipped = {}
-		GameState.prePrice = {}		
-		GameState.postPrice = {}
-		prePrice = {}
-		postPrice = {}
-		GameState.preAddRestockPrice = {}		
-		GameState.postAddRestockPrice = {}
+		
 		dontRestock = false
 		needsToRestock = false
 		hasSteamSale = false
 		hasUsedFMN = false
-		openNomralShop = false
-		shopStayOpen = false
-		seenCollectibles = {}
-		GameState.seenItems = {}			-- first lets reset it
-		hasWon = false
+		
 
 	elseif bool == true then	-- the run continues
 		-- note this might can be done in a way which only does this if the player can still get the ghost shop.
@@ -868,15 +879,23 @@ function GhostShop:onNewStart(bool)
 		storedCoopItems[2] = GameState.backUpCoopItems2
 		storedCoopItems[3] = GameState.backUpCoopItems3
 
-		-- make sure the layout is still in place
-		usedLayout = GameState.backUpLayout
+		-- ---------------------------------------- --
+		-- restore the values of the shop variables -- 
+		usedLayout = GameState.backUpLayout			-- make sure the layout and itemQualitye are still in place
+		itemQuality = GameState.backUpQuality		
 
-		-- make sure the itemQualitye table is still in place
-		itemQuality = GameState.backUpQuality
-
-		-- make sure the game knows that the player beat an endgame boss
-		if GameState.winBonus ~= 0 then
-			hasWon = true
+		-- make sure spawned items are tracked properly
+		preFlipped = GameState.preFlippedItems		
+		postFlipped = GameState.postFlippedItems
+		-- also make sure to track which shop was visited or not
+		if preFlipped[1] ~= nil then				
+			if preFlipped[1] == -99 then 			-- means the player must have visited the normal shop
+				NormalShopVisit = true
+			else						-- means the player must have visited the ghost shop
+				GhostShopVisit = true
+			end
+			print(NormalShopVisit)
+			print(GhostShopVisit)
 		end
 
 		-- make sure the prices are tracked properly
@@ -885,18 +904,14 @@ function GhostShop:onNewStart(bool)
 		preAddRestockPrice = GameState.preAddRestockPrice	
 		postAddRestockPrice = GameState.postAddRestockPrice
 
-		-- make sure spawned items are tracked properly
-		preFlipped = GameState.preFlippedItems		
-		postFlipped = GameState.postFlippedItems
-
 		-- make sure that the flipped state is tracked properly.
-		if preFlipped[(shopLayouts[usedLayout][1]) + 1] == -2 then		-- this checks the value for the flipped state which we added in the `Mod.onExit` function
+		if preFlipped[(shopLayouts[usedLayout][1]) + 1] == -2 then	-- this checks the value for the flipped state which we added in the `Mod.onExit` function
 			flipped = 1
 		elseif preFlipped[(shopLayouts[usedLayout][1]) + 1] == -3 then
 			flipped = 2
 		end
 
-		-- amke sure to track the ghost signs properly
+		-- make sure to track the ghost signs properly (this checks which side the store was on)
 		if flipped == 1 then
 			if storeSigns[1] == nil then
 				SpawnGhostSigns = true
@@ -907,13 +922,9 @@ function GhostShop:onNewStart(bool)
 			end
 		end
 
-		-- make sure to track which shop was visited or not
-		if preFlipped[1] ~= nil then 	-- means the player must have visited the ghost shop
-			GhostShopVisit = true
-		end
-
-		-- make sure the shoplist ist tracked properly
-		shoppingList = GameState.shoppingList
+		-- ----------------------------------------------- --
+		-- restore the values of the rest of the variables -- 
+		shoppingList = GameState.shoppingList				-- make sure the shoplist ist tracked properly
 		backupShoppingListOne = GameState.backupShoppingListOne
 		backupShoppingListTwo = GameState.backupShoppingListTwo
 
@@ -923,6 +934,10 @@ function GhostShop:onNewStart(bool)
 		-- win and death bonus
 		deathBonus = GameState.deathBonus
 		winBonus = GameState.winBonus
+		-- make sure the game knows that the player beat an endgame boss
+		if winBonus ~= 0 then
+			hasWon = true
+		end
 	end
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, GhostShop.onNewStart)
@@ -1061,19 +1076,16 @@ function GhostShop:onShopItemPickup()
 		end
 
 		-- check if one of the players used the Mystery Gift item
-		if hasUsedMyGi[2] ~= nil then
-			-- we look for an item on the position stored in 'hasUsedMyGi[2]'
-			for _, entity in pairs(Isaac.FindInRadius(hasUsedMyGi[2], 2, EntityPartition.PICKUP)) do
+		if hasUsedMyGi[3] ~= nil then
+			-- we look for an item on the position stored in 'hasUsedMyGi[3]'
+			for _, entity in pairs(Isaac.FindInRadius(hasUsedMyGi[3], 2, EntityPartition.PICKUP)) do
 				if entity:ToPickup().Variant == PickupVariant.PICKUP_COLLECTIBLE then
 					-- change the item
-					local quality = 0
+					local quality = hasUsedMyGi[2]
 
 					-- get the rng
 					local ghostRNG = RNG()
 					ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
-
-					-- choose a quality
-					quality = ghostRNG:RandomInt(5) + 1
 
 					-- chose a new item to which the old one gets morphed (not rerolled!) to
 					ghostShop_ChoseNewItem(ghostRNG, quality, 1, entity, 0, 0, 0, 0, 0)		
@@ -1483,6 +1495,7 @@ function GhostShop:onShopEnter()
 					entity:Remove()
 				end
 			end
+			
 		end
 
 		if room:IsFirstVisit() == true then		-- first time visting a shop on this floor
@@ -1493,6 +1506,8 @@ function GhostShop:onShopEnter()
 			 		and entity:ToPickup():IsShopItem() then
 			 			-- if a shop item is found set NormalShopVisit to 'true' since it must be the normal shop of the level
 						NormalShopVisit = true		-- prevents the shop item to be spawned
+						-- fill the preFlipp table so we can keep track of the visit shop in case the player quited the game completly
+						preFlipped[1] = -99
 					end
 				end
 			end
@@ -1533,7 +1548,7 @@ function GhostShop:onShopEnter()
 					usedPriceTable = prePrice
 					usedRestockTable = preAddRestockPrice
 
-					if hasUsedFMN == false then	-- used to check if the player has used the 'Forget Me Now' item. Prevents another set of items to be spawned
+					if hasUsedFMN == false then	-- if the player hasn't used the 'Forget Me Now' or 'Glowing Hourglass' item.
 						-- ----------------------------------------------------------------- --
 
 						if shopLayouts[usedLayout][position + 1] ~= nil then	-- prevents a small bug from happpening. Somehow sometimes there's one more position than there should. Idk what causes this
@@ -1542,7 +1557,8 @@ function GhostShop:onShopEnter()
 							-- ghostShop_ChoseNewItem(rng, quality, roll, entity placeholder, spawnSign = true, addPrice = true, restock = false, reroll = false, spawnItem = true)
 						end
 						-- ----------------------------------------------------------------- --
-					else	-- we have to spawn the existing layout
+					else	-- we have to spawn the existing layout. 
+						
 						if shopLayouts[usedLayout][position + 1] ~= nil then
 							if preFlipped[position] == -1 then 	-- we need to spawn a shop sign
 								local shopSign = Isaac.Spawn(EntityType.ENTITY_EFFECT, EffectVariant.GHOST_STORE_SIGN, 0, shopLayouts[usedLayout][position + 1], Vector(0,0), nil):ToEffect()
@@ -1570,6 +1586,7 @@ function GhostShop:onShopEnter()
 					-- get the rng
 					local ghostRNG = RNG()
 					ghostRNG:SetSeed(game:GetSeeds():GetStartSeed(), 0)
+
 					ghostShop_SpawnCoopGhost(ghostRNG)
 				end
 				hasUsedFMN = false	-- reset the Forget Me Now use
@@ -1680,8 +1697,8 @@ function GhostShop:onNewFloor(_)
 		deathBonus = deathBonus + 1
 	end
 
-	-- ----------------------------------------------- --
-	-- prevent the shop from other floors to stay open --
+	-- ------------------------------------------ --
+	-- prevent the shop from other floors to open --
 	openNomralShop = false
 
 	-- ------------------------------------------ --
@@ -1819,7 +1836,7 @@ function GhostShop:onCollectibleSpawn(pickup)
 		if hasUsedMyGi[1] == true 
 		and pickup.SubTYpe ~= CollectibleType.COLLECTIBLE_POOP then
 			-- insert the items position in the second position of the table	
-			hasUsedMyGi[2] = pickup.Position
+			hasUsedMyGi[3] = pickup.Position
 
 			-- reset 'hasUsedMyGi[1]'
 			hasUsedMyGi[1] = false
@@ -1892,16 +1909,17 @@ function GhostShop:onForgetMeNowUse(active,rng)
 	-- check if the NormalShopVisit is true
 	if NormalShopVisit == true then
 		NormalShopVisit = false		-- reset the shop variabel if the player uses the spacebar item
+		preFlipped = {}
 	end
 	-- check if the GhostShopVisit is true
 	if GhostShopVisit == true then
-		GhostShopVisit = false		-- reset the shop variabel if the player uses the spacebar item
+		GhostShopVisit = false			-- reset the shop variabel if the player uses the spacebar item
 	end
 	-- reset the flipped state
 	flipped = 1
 	-- reset if the shop should stay open
 	openNomralShop = false
-	-- reset the Glitched Corwn check
+	-- reset the Glitched Crown check
 	hasGlitchedCrown = false
 	-- let the game kown that Forget Me Now has been used
 	hasUsedFMN = true	-- reset the Forget Me Now use
@@ -1912,12 +1930,14 @@ GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onForgetMeNowUse, 
 function GhostShop:onMysteryGiftUse(active,rng)
 	local room = game:GetRoom()
 	local roomType = room:GetType()
+	local quality = rng:RandomInt(5) + 1
 	
 	-- only use the callback when the player is in the right location
 	if roomType == RoomType.ROOM_SHOP	
 	and room:IsMirrorWorld() == true 
 	and GhostShopVisit == true then
 		hasUsedMyGi[1] = true			-- gets used in the 'MC_POST_PICKUP_INIT'- callback
+		hasUsedMyGi[2] = quality		-- gets used in the 'MC_POST_UPDATE'- callback
 	end
 end
 GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onMysteryGiftUse, CollectibleType.COLLECTIBLE_MYSTERY_GIFT)
@@ -2193,6 +2213,10 @@ function GhostShop:onExit(_)
 
 	-- ---------------------- --
 	-- update Gamestate tables --
+	-- usedLayout & itemQaulity
+	GameState.backUpLayout = usedLayout
+	GameState.backUpQuality = itemQuality
+
 	-- win & death bonus
 	GameState.deathBonus = deathBonus
 	GameState.winBonus = winBonus
@@ -2266,7 +2290,7 @@ function GhostShop:onExit(_)
 			for k, itemID in ipairs(temporaryStored[(i + 1)]) do
 
 				-- save the item the player currently has
-					ghostShop_SaveHeldItems(itemID)		-- ghostShop_SaveHeldItems(ID of the item)
+					ghostShop_SaveHeldItems(itemID, i)		-- ghostShop_SaveHeldItems(ID of the item, coop player)
 			end
 		else
 			-- check if the player is a coop ghost
@@ -2278,7 +2302,7 @@ function GhostShop:onExit(_)
 						-- check if one of the items shoudn't be saved
 						if ghostShop_ItemBlacklist(j) == true then		-- ghostShop_ItemBlacklist(ID of the item)
 							-- save the item the player currently has
-							ghostShop_SaveHeldItems(j)			-- ghostShop_SaveHeldItems(ID of the item)
+							ghostShop_SaveHeldItems(j, i)			-- ghostShop_SaveHeldItems(ID of the item, coop player)
 						end
 					end
 				end
@@ -2287,7 +2311,7 @@ function GhostShop:onExit(_)
 				for k, itemID in ipairs(temporaryStored[(i + 1)]) do
 
 					-- save the item the player currently has
-					ghostShop_SaveHeldItems(itemID)			-- ghostShop_SaveHeldItems(ID of the item)
+					ghostShop_SaveHeldItems(itemID, i)			-- ghostShop_SaveHeldItems(ID of the item, coop player)
 				end
 			end
 		end
