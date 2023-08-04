@@ -81,6 +81,7 @@ local backupListTwo = {} 	-- keeps track of the items you bought overall in your
 -- synergies variables
 local hasUsedDice = false	-- keeps track if a player used the D6, Eternal D6, D Infinty and Dice Shard
 local hasUsedD100 = false	-- separatly keeps track if the player has used the D100, due to the bug with multiple items
+local hasUsedD7 = false		-- keeps track if the player has used the D7
 local hasUsedFlip = false	-- keeps track if a player used the Flip item
 local hasUsedFMN = false	-- keeps track if a player used Forget Me Now. 'true' will prevent other item to get added to the preflipped table
 local hasUsedMyGi = {false}	-- keeps track if a player used the Mystery Gift. hasUsedMyGi[1] == 'true' will trigger code in the 'MC_POST_PICKUP_INIT' callback to morph the newly spawned item
@@ -200,11 +201,11 @@ local function ghostShop_ItemCompatibility(update)
 		end
 	end
 	-- update the json tables once an invalid item has been found
-	GameState.savedItems1 = storedItems[1]
-	GameState.savedItems2 = storedItems[2]
-	GameState.savedItems3 = storedItems[3]
-	GameState.savedItems4 = storedItems[4]
-	GameState.savedItems5 = storedItems[5]
+	GameState.backupItems1 = storedItems[1]
+	GameState.backupItems2 = storedItems[2]
+	GameState.backupItems3 = storedItems[3]
+	GameState.backupItems4 = storedItems[4]
+	GameState.backupItems5 = storedItems[5]
 
 	GameState.backUpCoopItems1 = storedCoopItems[1]
 	GameState.backUpCoopItems2 = storedCoopItems[2]
@@ -999,6 +1000,7 @@ function GhostShop:onNewStart(bool)
 		-- reset all synergy variables --
 		hasUsedDice = false	-- D6, Eternal D6, D Infinty and Dice Shard
 		hasUsedD100 = false	-- extra for D100
+		hasUsedD7 = false	-- D7
 		hasUsedFlip = false	-- Flip
 		flippedQuality = {}
 		
@@ -1242,6 +1244,11 @@ function GhostShop:onShopItemPickup()
 			hasUsedDice = false
 			-- restock synergy
 			dontRestock = false
+		end
+
+		-- D7 synergy
+		if hasUsedD7 == true then
+			hasUsedD7 = false
 		end
 
 		-- check if one of the players used the Mystery Gift item
@@ -2062,7 +2069,8 @@ function GhostShop:onCollectibleSpawn(pickup)
 				end
 			end
 
-			if hasRestock == true then
+			if hasRestock == true 
+			or hasUsedD7 == true then
 				-- remove the new shopitem!
 				pickup:Remove()
 				needsToRestock = true
@@ -2132,6 +2140,19 @@ GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onDiceUse, Collect
 GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onDiceUse, CollectibleType.COLLECTIBLE_D_INFINITY)
 GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onDiceUse, CollectibleType.COLLECTIBLE_ETERNAL_D6)
 
+function GhostShop:onD7Use(active,rng)
+	local room = game:GetRoom()
+	local roomType = room:GetType()
+
+	-- only use the callback when the player is in the right location
+	if roomType == RoomType.ROOM_SHOP	
+	and room:IsMirrorWorld() == true 
+	and GhostShopVisit == true then
+		hasUsedD7 = true
+	end
+end
+GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onD7Use, CollectibleType.COLLECTIBLE_D7)
+
 function GhostShop:onFlipUse(active,rng)
 	local room = game:GetRoom()
 	local roomType = room:GetType()
@@ -2155,7 +2176,7 @@ function GhostShop:onFlipUse(active,rng)
 end
 GhostShop:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, GhostShop.onFlipUse, CollectibleType.COLLECTIBLE_FLIP)
 
-function GhostShop:onForgetMeNowUse(active,rng)
+function GhostShop:onForgetMeNowUse(active,rng)		-- ! that could still be improved
 	-- check if the NormalShopVisit is true
 	if NormalShopVisit == true then
 		NormalShopVisit = false		-- reset the shop variabel if the player uses the spacebar item
@@ -2271,25 +2292,41 @@ function GhostShop:onGhostSignUpdate(effect)
 			sprite:LoadGraphics()
 		elseif variant <= 15 then	
 			if usedLayout == 1 then		-- unlucky layout
-				sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_angry.png")
-				sprite:LoadGraphics()
+				if data.isAngry == nil then
+					data.isAngry = true
+				end
 			else
 				sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_lost.png")
 				sprite:LoadGraphics()
 			end
-		elseif variant <= 15 then	-- 10% chance rare variants
+		elseif variant <= 30 then	-- 10% chance rare variants
 			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_lost.png")
 			sprite:LoadGraphics()
-		elseif variant <= 48 then	-- 33% chance for other variants
+		elseif variant <= 66 then	-- 33% chance for other variants
 			sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_afraid.png")
 			sprite:LoadGraphics()
+			if data.isAfraid == nil then
+				data.isAfraid = true
+			end
 		end
 		-- make it appear
 		sprite:Play("Appear")
 		data.ShouldAppear = false
 	end
 	if sprite:IsFinished("Appear") then
-		sprite:Play("Idle2", true)
+		if data.isAfraid == true then
+			sprite:Play("Afraid", true)
+			sprite:LoadGraphics()
+		elseif data.isAngry == true then
+			sprite:Play("Angry", true)
+		else
+			sprite:Play("Idle2", true)
+		end
+	end
+	if sprite:IsFinished("Angry") then
+		sprite:ReplaceSpritesheet(0, "gfx/effects/effect_ghoststoresign_angry.png")
+		sprite:LoadGraphics()
+		sprite:Play("Idle3", true)
 	end
 end
 GhostShop:AddCallback(ModCallbacks.MC_POST_EFFECT_UPDATE, GhostShop.onGhostSignUpdate, EffectVariant.GHOST_STORE_SIGN)
@@ -2477,6 +2514,19 @@ function GhostShop:onExit(_)
 	GameState.coopItems1 = {}
 	GameState.coopItems2 = {}
 	GameState.coopItems3 = {}
+
+	-- ------------------------------------------------------------------------- --
+	-- update the backup Gamestate tables in case items have been spawned/bought --
+	-- update the json tables once an invalid item has been found
+	GameState.backupItems1 = storedItems[1]
+	GameState.backupItems2 = storedItems[2]
+	GameState.backupItems3 = storedItems[3]
+	GameState.backupItems4 = storedItems[4]
+	GameState.backupItems5 = storedItems[5]
+
+	GameState.backUpCoopItems1 = storedCoopItems[1]
+	GameState.backUpCoopItems2 = storedCoopItems[2]
+	GameState.backUpCoopItems3 = storedCoopItems[3]
 
 	-- ---------------------- --
 	-- update Gamestate tables --
